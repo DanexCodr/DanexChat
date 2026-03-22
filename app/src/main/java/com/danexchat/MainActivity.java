@@ -10,6 +10,9 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -41,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
 
     // Inline status bar (model loading / errors)
     private TextView tvStatus;
+    private View inputRow;
 
     private ModelManager    modelManager;
     private SmolLMInference smolLM;
@@ -82,9 +86,34 @@ public class MainActivity extends AppCompatActivity {
         inputField        = findViewById(R.id.etUserInput);
         sendButton        = findViewById(R.id.btnSend);
         tvStatus          = findViewById(R.id.tvStatus);
+        inputRow          = findViewById(R.id.inputRow);
         downloadOverlay   = findViewById(R.id.downloadOverlay);
         downloadProgress  = findViewById(R.id.progressBar);
         tvDownloadStatus  = findViewById(R.id.tvDownloadStatus);
+
+        View rootLayout = findViewById(R.id.rootLayout);
+        final int toolbarPaddingLeft = toolbar.getPaddingLeft();
+        final int toolbarPaddingTop = toolbar.getPaddingTop();
+        final int toolbarPaddingRight = toolbar.getPaddingRight();
+        final int toolbarPaddingBottom = toolbar.getPaddingBottom();
+        final int inputPaddingLeft = inputRow.getPaddingLeft();
+        final int inputPaddingTop = inputRow.getPaddingTop();
+        final int inputPaddingRight = inputRow.getPaddingRight();
+        final int inputPaddingBottom = inputRow.getPaddingBottom();
+
+        ViewCompat.setOnApplyWindowInsetsListener(rootLayout, (v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            toolbar.setPadding(toolbarPaddingLeft,
+                    toolbarPaddingTop + bars.top,
+                    toolbarPaddingRight,
+                    toolbarPaddingBottom);
+            inputRow.setPadding(inputPaddingLeft,
+                    inputPaddingTop,
+                    inputPaddingRight,
+                    inputPaddingBottom + bars.bottom);
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(rootLayout);
 
         sendButton.setOnClickListener(v -> onSendClicked());
     }
