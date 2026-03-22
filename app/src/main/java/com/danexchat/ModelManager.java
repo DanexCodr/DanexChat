@@ -44,7 +44,7 @@ public class ModelManager {
     public File getModelFile()     { return modelFile; }
     public File getTokenizerFile() { return tokenizerFile; }
 
-    /** Returns true if both model and tokenizer files are ready in internal storage. */
+    /** Returns true if bundled assets can be prepared into internal storage and pass size checks. */
     public boolean isReady() {
         ensureBundledFiles();
         return hasValidSize(modelFile, MIN_MODEL_BYTES)
