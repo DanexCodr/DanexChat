@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DanexChat</string>
+    <string name="powered_by">Powered by SmolLM2 · On-device AI</string>
+    <string name="input_hint">Message SmolLM…</string>
+    <string name="send">Send</string>
+    <string name="send_arrow">➤</string>
+    <string name="preparing">Preparing…</string>
+    <string name="loading_model">Loading SmolLM2 model…</string>
+    <string name="model_ready">👋 Hi! I\'m SmolLM2, your on-device AI assistant. How can I help you today?</string>
+    <string name="download_failed">Download failed</string>
+    <string name="load_error">Failed to load model: %1$s</string>
+    <string name="load_error_toast">Could not load AI model</string>
+    <string name="generation_error">⚠ An error occurred during generation.</string>
+</resources>
