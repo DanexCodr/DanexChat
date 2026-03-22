@@ -1,12 +1,10 @@
 package com.danexchat;
 
 import android.os.Bundle;
-import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -17,7 +15,6 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -32,7 +29,6 @@ import java.util.concurrent.Executors;
  */
 public class MainActivity extends AppCompatActivity {
     private static final int DEFAULT_TOOLBAR_HEIGHT_DP = 56;
-    private static final String TAG = "MainActivity";
 
     private RecyclerView  recyclerView;
     private ChatAdapter   chatAdapter;
@@ -41,13 +37,9 @@ public class MainActivity extends AppCompatActivity {
     private EditText  inputField;
     private Button    sendButton;
 
-    private View       downloadOverlay;
-
     // Inline status bar (model loading / errors)
     private TextView tvStatus;
     private View inputRow;
-    private ProgressBar downloadProgressBar;
-    private TextView tvDownloadStatus;
 
     private ModelManager    modelManager;
     private SmolLMInference smolLM;
@@ -90,9 +82,6 @@ public class MainActivity extends AppCompatActivity {
         sendButton        = findViewById(R.id.btnSend);
         tvStatus          = findViewById(R.id.tvStatus);
         inputRow          = findViewById(R.id.inputRow);
-        downloadOverlay   = findViewById(R.id.downloadOverlay);
-        downloadProgressBar = findViewById(R.id.progressBar);
-        tvDownloadStatus = findViewById(R.id.tvDownloadStatus);
 
         View rootLayout = findViewById(R.id.rootLayout);
         final int toolbarPaddingLeft = toolbar.getPaddingLeft();
@@ -143,40 +132,12 @@ public class MainActivity extends AppCompatActivity {
 
     private void checkAndLoadModel() {
         if (modelManager.isReady()) {
-            showDownloadOverlay(false);
             loadModelAsync();
         } else {
-            startModelDownload();
+            showStatus(getString(R.string.bundled_model_missing));
+            addAssistantMessage(getString(R.string.bundled_model_missing_chat));
+            setSendEnabled(false);
         }
-    }
-
-    private void startModelDownload() {
-        hideStatus();
-        showDownloadOverlay(true);
-        downloadProgressBar.setProgress(0);
-        tvDownloadStatus.setText(getString(R.string.preparing));
-        modelManager.downloadAll(new ModelManager.DownloadCallback() {
-            @Override
-            public void onProgress(int percent, String message) {
-                downloadProgressBar.setProgress(percent);
-                tvDownloadStatus.setText(message);
-            }
-
-            @Override
-            public void onComplete(File modelFile, File tokenizerFile) {
-                showDownloadOverlay(false);
-                loadModelAsync();
-            }
-
-            @Override
-            public void onError(Exception e) {
-                showDownloadOverlay(false);
-                showStatus(getString(R.string.download_failed));
-                Log.e(TAG, "Model download failed", e);
-                addAssistantMessage(getString(R.string.download_failed_chat));
-                setSendEnabled(false);
-            }
-        });
     }
 
     private void loadModelAsync() {
@@ -285,11 +246,6 @@ public class MainActivity extends AppCompatActivity {
     private void setSendEnabled(boolean enabled) {
         sendButton.setEnabled(enabled);
         inputField.setEnabled(enabled);
-    }
-
-    private void showDownloadOverlay(boolean show) {
-        downloadOverlay.setVisibility(show ? View.VISIBLE : View.GONE);
-        setSendEnabled(!show);
     }
 
     private void showStatus(String text) {
