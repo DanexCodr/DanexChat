@@ -2,11 +2,10 @@ package com.danexchat;
 
 import android.os.Bundle;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.ProgressBar;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
@@ -24,11 +23,12 @@ import java.util.concurrent.Executors;
 /**
  * Main chat activity for DanexChat.
  *
- * On first launch the SmolLM2-135M-Instruct ONNX model (~90 MB) and its
- * tokenizer are downloaded from HuggingFace.  After loading, the user can
- * hold an on-device AI conversation powered entirely by SmolLM2.
+ * The SmolLM2-135M-Instruct ONNX model and tokenizer are bundled with the app.
+ * On startup, bundled assets are prepared in internal storage and then loaded
+ * for fully on-device chat.
  */
 public class MainActivity extends AppCompatActivity {
+    private static final int DEFAULT_TOOLBAR_HEIGHT_DP = 56;
 
     private RecyclerView  recyclerView;
     private ChatAdapter   chatAdapter;
@@ -37,10 +37,7 @@ public class MainActivity extends AppCompatActivity {
     private EditText  inputField;
     private Button    sendButton;
 
-    // Download-overlay views
     private View       downloadOverlay;
-    private ProgressBar downloadProgress;
-    private TextView   tvDownloadStatus;
 
     // Inline status bar (model loading / errors)
     private TextView tvStatus;
@@ -88,14 +85,13 @@ public class MainActivity extends AppCompatActivity {
         tvStatus          = findViewById(R.id.tvStatus);
         inputRow          = findViewById(R.id.inputRow);
         downloadOverlay   = findViewById(R.id.downloadOverlay);
-        downloadProgress  = findViewById(R.id.progressBar);
-        tvDownloadStatus  = findViewById(R.id.tvDownloadStatus);
 
         View rootLayout = findViewById(R.id.rootLayout);
         final int toolbarPaddingLeft = toolbar.getPaddingLeft();
         final int toolbarPaddingTop = toolbar.getPaddingTop();
         final int toolbarPaddingRight = toolbar.getPaddingRight();
         final int toolbarPaddingBottom = toolbar.getPaddingBottom();
+        final int toolbarBaseHeight = toolbar.getLayoutParams().height;
         final int inputPaddingLeft = inputRow.getPaddingLeft();
         final int inputPaddingTop = inputRow.getPaddingTop();
         final int inputPaddingRight = inputRow.getPaddingRight();
@@ -103,14 +99,20 @@ public class MainActivity extends AppCompatActivity {
 
         ViewCompat.setOnApplyWindowInsetsListener(rootLayout, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            toolbar.setPadding(toolbarPaddingLeft,
-                    toolbarPaddingTop + bars.top,
-                    toolbarPaddingRight,
-                    toolbarPaddingBottom);
+            Insets imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime());
+            ViewGroup.LayoutParams toolbarLayoutParams = toolbar.getLayoutParams();
+            if (toolbarLayoutParams != null) {
+                int resolvedToolbarHeight = toolbarBaseHeight > 0
+                        ? toolbarBaseHeight
+                        : (int) (DEFAULT_TOOLBAR_HEIGHT_DP * getResources().getDisplayMetrics().density);
+                toolbarLayoutParams.height = resolvedToolbarHeight + bars.top;
+                toolbar.setLayoutParams(toolbarLayoutParams);
+            }
+            toolbar.setPadding(toolbarPaddingLeft, toolbarPaddingTop, toolbarPaddingRight, toolbarPaddingBottom);
             inputRow.setPadding(inputPaddingLeft,
                     inputPaddingTop,
                     inputPaddingRight,
-                    inputPaddingBottom + bars.bottom);
+                    inputPaddingBottom + Math.max(bars.bottom, imeInsets.bottom));
             return insets;
         });
         ViewCompat.requestApplyInsets(rootLayout);
@@ -133,30 +135,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void checkAndLoadModel() {
         if (modelManager.isReady()) {
+            showDownloadOverlay(false);
             loadModelAsync();
         } else {
-            showDownloadOverlay(true);
-            modelManager.downloadAll(new ModelManager.DownloadCallback() {
-                @Override
-                public void onProgress(int percent, String message) {
-                    downloadProgress.setProgress(percent);
-                    tvDownloadStatus.setText(message);
-                }
-
-                @Override
-                public void onComplete(java.io.File modelFile, java.io.File tokFile) {
-                    showDownloadOverlay(false);
-                    loadModelAsync();
-                }
-
-                @Override
-                public void onError(Exception e) {
-                    showDownloadOverlay(false);
-                    Toast.makeText(MainActivity.this,
-                            getString(R.string.download_failed) + ": " + e.getMessage(),
-                            Toast.LENGTH_LONG).show();
-                }
-            });
+            showDownloadOverlay(false);
+            showStatus(getString(R.string.bundled_model_missing));
+            addAssistantMessage(getString(R.string.bundled_model_missing_chat));
+            setSendEnabled(false);
         }
     }
 
@@ -178,7 +163,7 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     showStatus(getString(R.string.load_error, e.getMessage()));
-                    Toast.makeText(this, R.string.load_error_toast, Toast.LENGTH_LONG).show();
+                    addAssistantMessage(getString(R.string.error_prefix, e.getMessage()));
                 });
             }
         });
@@ -232,12 +217,11 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onError(Exception e) {
                     runOnUiThread(() -> {
-                        aiMsg.setContent(getString(R.string.generation_error));
+                        aiMsg.setContent(getString(R.string.error_prefix, e.getMessage()));
                         int pos = messages.indexOf(aiMsg);
                         if (pos >= 0) chatAdapter.notifyItemChanged(pos);
                         setSendEnabled(true);
-                        Toast.makeText(MainActivity.this,
-                                e.getMessage(), Toast.LENGTH_LONG).show();
+                        scrollToBottom();
                     });
                 }
             })
