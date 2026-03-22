@@ -215,7 +215,14 @@ public class ModelManager {
     }
 
     private void copyAssetIfExists(String assetPath, File dest) throws IOException {
-        File tmp = new File(dest.getParent(), dest.getName() + ".tmp");
+        File parent = dest.getParentFile();
+        if (parent == null) {
+            throw new IOException("Destination has no parent directory: " + dest.getAbsolutePath());
+        }
+        File tmp = new File(parent, dest.getName() + ".tmp");
+        if (tmp.exists() && !tmp.delete()) {
+            Log.w(TAG, "Failed to clean old temp file before asset copy: " + tmp.getAbsolutePath());
+        }
         try {
             try (InputStream in = assetManager.open(assetPath);
                  FileOutputStream out = new FileOutputStream(tmp)) {
@@ -231,7 +238,9 @@ public class ModelManager {
                         java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException e) {
-            tmp.delete();
+            if (!tmp.delete()) {
+                Log.w(TAG, "Failed to delete temp asset copy: " + tmp.getAbsolutePath());
+            }
             throw e;
         }
     }

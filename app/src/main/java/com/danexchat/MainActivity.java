@@ -2,6 +2,7 @@ package com.danexchat;
 
 import android.os.Bundle;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -27,6 +28,7 @@ import java.util.concurrent.Executors;
  * for fully on-device chat.
  */
 public class MainActivity extends AppCompatActivity {
+    private static final int DEFAULT_TOOLBAR_HEIGHT_DP = 56;
 
     private RecyclerView  recyclerView;
     private ChatAdapter   chatAdapter;
@@ -76,7 +78,6 @@ public class MainActivity extends AppCompatActivity {
     private void bindViews() {
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
-        toolbar.setTitle(R.string.app_name);
 
         recyclerView      = findViewById(R.id.recyclerViewMessages);
         inputField        = findViewById(R.id.etUserInput);
@@ -99,8 +100,14 @@ public class MainActivity extends AppCompatActivity {
         ViewCompat.setOnApplyWindowInsetsListener(rootLayout, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             Insets imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime());
-            toolbar.getLayoutParams().height = toolbarBaseHeight + bars.top;
-            toolbar.requestLayout();
+            ViewGroup.LayoutParams toolbarLayoutParams = toolbar.getLayoutParams();
+            if (toolbarLayoutParams != null) {
+                int resolvedToolbarHeight = toolbarBaseHeight > 0
+                        ? toolbarBaseHeight
+                        : (int) (DEFAULT_TOOLBAR_HEIGHT_DP * getResources().getDisplayMetrics().density);
+                toolbarLayoutParams.height = resolvedToolbarHeight + bars.top;
+                toolbar.setLayoutParams(toolbarLayoutParams);
+            }
             toolbar.setPadding(toolbarPaddingLeft, toolbarPaddingTop, toolbarPaddingRight, toolbarPaddingBottom);
             inputRow.setPadding(inputPaddingLeft,
                     inputPaddingTop,
