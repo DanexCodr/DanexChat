@@ -24,14 +24,20 @@ public class ModelManager {
     private static final String TAG = "ModelManager";
 
     // HuggingFace model URLs for SmolLM2-135M-Instruct
-    private static final String MODEL_URL =
-            "https://huggingface.co/onnx-community/SmolLM2-135M-Instruct/resolve/main/onnx/model_q4.onnx";
-    private static final String TOKENIZER_URL =
-            "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/main/tokenizer.json";
+    private static final String[] MODEL_URLS = new String[] {
+            "https://huggingface.co/onnx-community/SmolLM2-135M-Instruct/resolve/main/onnx/model_q4.onnx",
+            "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/main/onnx/model_q4.onnx"
+    };
+    private static final String[] TOKENIZER_URLS = new String[] {
+            "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/main/tokenizer.json",
+            "https://huggingface.co/onnx-community/SmolLM2-135M-Instruct/resolve/main/tokenizer.json"
+    };
 
     private static final String MODEL_FILENAME     = "model_q4.onnx";
     private static final String TOKENIZER_FILENAME = "tokenizer.json";
     private static final String MODEL_DIR          = "smollm2";
+    private static final long MIN_MODEL_BYTES      = 50L * 1024L * 1024L; // expected ≈90MB
+    private static final long MIN_TOKENIZER_BYTES  = 1024L;
 
     private final File modelDir;
     private final File modelFile;
@@ -56,8 +62,8 @@ public class ModelManager {
 
     /** Returns true if both model and tokenizer files are already downloaded. */
     public boolean isReady() {
-        return modelFile.exists() && modelFile.length() > 0
-            && tokenizerFile.exists() && tokenizerFile.length() > 0;
+        return hasValidSize(modelFile, MIN_MODEL_BYTES)
+                && hasValidSize(tokenizerFile, MIN_TOKENIZER_BYTES);
     }
 
     /**
@@ -68,16 +74,16 @@ public class ModelManager {
         new Thread(() -> {
             try {
                 // Step 1: tokenizer (~1-2 MB, fast)
-                if (!tokenizerFile.exists() || tokenizerFile.length() == 0) {
+                if (!hasValidSize(tokenizerFile, MIN_TOKENIZER_BYTES)) {
                     postProgress(callback, 0, "Downloading tokenizer…");
-                    downloadFile(TOKENIZER_URL, tokenizerFile, (p) ->
+                    downloadFromUrls(TOKENIZER_URLS, tokenizerFile, (p) ->
                             postProgress(callback, p / 20, "Downloading tokenizer…"));
                 }
 
                 // Step 2: model (large – ~90 MB for q4)
-                if (!modelFile.exists() || modelFile.length() == 0) {
+                if (!hasValidSize(modelFile, MIN_MODEL_BYTES)) {
                     postProgress(callback, 5, "Downloading SmolLM2-135M model (≈90 MB)…");
-                    downloadFile(MODEL_URL, modelFile, (p) ->
+                    downloadFromUrls(MODEL_URLS, modelFile, (p) ->
                             postProgress(callback, 5 + (int)(p * 0.95), "Downloading model… " + p + "%"));
                 }
 
@@ -85,7 +91,8 @@ public class ModelManager {
             } catch (Exception e) {
                 Log.e(TAG, "Download failed", e);
                 // Clean up partial files
-                if (modelFile.exists() && modelFile.length() == 0) modelFile.delete();
+                if (!hasValidSize(modelFile, MIN_MODEL_BYTES)) modelFile.delete();
+                if (!hasValidSize(tokenizerFile, MIN_TOKENIZER_BYTES)) tokenizerFile.delete();
                 mainHandler.post(() -> callback.onError(e));
             }
         }, "ModelDownload").start();
@@ -97,6 +104,21 @@ public class ModelManager {
 
     private interface ProgressListener {
         void onProgress(int percent);
+    }
+
+    private void downloadFromUrls(String[] urls, File dest, ProgressListener progress)
+            throws IOException {
+        IOException lastError = null;
+        for (String url : urls) {
+            try {
+                downloadFile(url, dest, progress);
+                return;
+            } catch (IOException e) {
+                lastError = e;
+                Log.w(TAG, "Download failed from " + url + ": " + e.getMessage());
+            }
+        }
+        throw (lastError != null) ? lastError : new IOException("No download URL available");
     }
 
     private void downloadFile(String urlStr, File dest, ProgressListener progress)
@@ -148,12 +170,21 @@ public class ModelManager {
             conn.disconnect();
         }
 
+        if (downloaded <= 0 || (total > 0 && downloaded < total)) {
+            tmp.delete();
+            throw new IOException("Incomplete download for " + dest.getName() + " (" + downloaded + "/" + total + ")");
+        }
+
         if (!tmp.renameTo(dest)) {
-            // Fallback: copy then delete
+            // Fallback: move then replace
             java.nio.file.Files.move(tmp.toPath(), dest.toPath(),
                     java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         }
         Log.i(TAG, "Downloaded " + dest.getName() + " (" + downloaded / 1024 + " KB)");
+    }
+
+    private boolean hasValidSize(File file, long minBytes) {
+        return file.exists() && file.length() >= minBytes;
     }
 
     private void postProgress(DownloadCallback cb, int percent, String message) {
