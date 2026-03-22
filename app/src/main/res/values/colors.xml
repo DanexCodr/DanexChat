@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand colours -->
+    <color name="colorPrimary">#FF6B35</color>
+    <color name="colorPrimaryDark">#E55A25</color>
+    <color name="colorAccent">#FF8C60</color>
+
+    <!-- UI colours -->
+    <color name="background">#F5F5F5</color>
+    <color name="inputBackground">#FFFFFF</color>
+    <color name="statusBackground">#FFF3E0</color>
+
+    <!-- Text colours -->
+    <color name="textPrimary">#212121</color>
+    <color name="textSecondary">#757575</color>
+    <color name="textHint">#BDBDBD</color>
+
+    <!-- Chat bubble colours -->
+    <color name="bubbleUser">#FF6B35</color>
+    <color name="bubbleAssistant">#FFFFFF</color>
+
+    <!-- Border -->
+    <color name="bubbleBorder">#E0E0E0</color>
+</resources>

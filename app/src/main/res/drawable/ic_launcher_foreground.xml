@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher foreground: simple "D" letter for DanexChat -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,28 L34,80 L54,80 C67,80 76,71 76,54 C76,37 67,28 54,28 Z M44,38 L54,38 C61,38 66,44 66,54 C66,64 61,70 54,70 L44,70 Z" />
+</vector>

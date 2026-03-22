@@ -1,0 +1,29 @@
+# Built output
+/app/build/
+/build/
+
+# Gradle
+.gradle/
+gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Android Studio
+*.iml
+.idea/
+local.properties
+.DS_Store
+captures/
+
+# APKs and signing keystores
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Test results
+/app/src/androidTest/
+/app/src/test/
+
+# Downloaded model files (large binary – stored in app internal storage at runtime)
+*.onnx
+tokenizer.json
