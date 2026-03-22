@@ -5,6 +5,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -15,6 +16,7 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -42,6 +44,8 @@ public class MainActivity extends AppCompatActivity {
     // Inline status bar (model loading / errors)
     private TextView tvStatus;
     private View inputRow;
+    private ProgressBar downloadProgressBar;
+    private TextView tvDownloadStatus;
 
     private ModelManager    modelManager;
     private SmolLMInference smolLM;
@@ -85,6 +89,8 @@ public class MainActivity extends AppCompatActivity {
         tvStatus          = findViewById(R.id.tvStatus);
         inputRow          = findViewById(R.id.inputRow);
         downloadOverlay   = findViewById(R.id.downloadOverlay);
+        downloadProgressBar = findViewById(R.id.progressBar);
+        tvDownloadStatus = findViewById(R.id.tvDownloadStatus);
 
         View rootLayout = findViewById(R.id.rootLayout);
         final int toolbarPaddingLeft = toolbar.getPaddingLeft();
@@ -138,11 +144,36 @@ public class MainActivity extends AppCompatActivity {
             showDownloadOverlay(false);
             loadModelAsync();
         } else {
-            showDownloadOverlay(false);
-            showStatus(getString(R.string.bundled_model_missing));
-            addAssistantMessage(getString(R.string.bundled_model_missing_chat));
-            setSendEnabled(false);
+            startModelDownload();
         }
+    }
+
+    private void startModelDownload() {
+        hideStatus();
+        showDownloadOverlay(true);
+        downloadProgressBar.setProgress(0);
+        tvDownloadStatus.setText(getString(R.string.preparing));
+        modelManager.downloadAll(new ModelManager.DownloadCallback() {
+            @Override
+            public void onProgress(int percent, String message) {
+                downloadProgressBar.setProgress(percent);
+                tvDownloadStatus.setText(message);
+            }
+
+            @Override
+            public void onComplete(File modelFile, File tokenizerFile) {
+                showDownloadOverlay(false);
+                loadModelAsync();
+            }
+
+            @Override
+            public void onError(Exception e) {
+                showDownloadOverlay(false);
+                showStatus(getString(R.string.download_failed));
+                addAssistantMessage(getString(R.string.error_prefix, e.getMessage()));
+                setSendEnabled(false);
+            }
+        });
     }
 
     private void loadModelAsync() {
