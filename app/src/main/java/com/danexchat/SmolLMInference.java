@@ -53,6 +53,7 @@ public class SmolLMInference {
     private final List<String> presKeyNames = new ArrayList<>();
     private final List<String> presValNames = new ArrayList<>();
     private boolean hasKVCache = false;
+    private boolean requiresPositionIds = false;
 
     // -----------------------------------------------------------------
     // Constructor
@@ -76,6 +77,7 @@ public class SmolLMInference {
     private void discoverKVNames() throws OrtException {
         Set<String> inputNames  = session.getInputNames();
         Set<String> outputNames = session.getOutputNames();
+        requiresPositionIds = inputNames.contains("position_ids");
 
         for (int i = 0; i < NUM_LAYERS; i++) {
             String pk = "past_key_values." + i + ".key";
@@ -210,7 +212,13 @@ public class SmolLMInference {
         inputs.put("input_ids",
                    OnnxTensor.createTensor(env, LongBuffer.wrap(inputIds),  idShape));
         inputs.put("attention_mask",
-                   OnnxTensor.createTensor(env, LongBuffer.wrap(attnMask), maskShape));
+                    OnnxTensor.createTensor(env, LongBuffer.wrap(attnMask), maskShape));
+        if (requiresPositionIds) {
+            long[] pos = new long[inputIds.length];
+            for (int i = 0; i < inputIds.length; i++) pos[i] = pastLen + i;
+            inputs.put("position_ids",
+                    OnnxTensor.createTensor(env, LongBuffer.wrap(pos), idShape));
+        }
 
         for (int i = 0; i < numLayers; i++) {
             inputs.put(pastKeyNames.get(i),
@@ -266,6 +274,12 @@ public class SmolLMInference {
                        OnnxTensor.createTensor(env, LongBuffer.wrap(ids),  idShape));
             inputs.put("attention_mask",
                        OnnxTensor.createTensor(env, LongBuffer.wrap(mask), maskShape));
+            if (requiresPositionIds) {
+                long[] pos = new long[ids.length];
+                for (int i = 0; i < ids.length; i++) pos[i] = i;
+                inputs.put("position_ids",
+                        OnnxTensor.createTensor(env, LongBuffer.wrap(pos), idShape));
+            }
 
             long nextToken;
             try (OrtSession.Result ort = session.run(inputs)) {
