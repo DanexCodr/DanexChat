@@ -37,8 +37,6 @@ public class MainActivity extends AppCompatActivity {
     private EditText  inputField;
     private Button    sendButton;
 
-    private View       downloadOverlay;
-
     // Inline status bar (model loading / errors)
     private TextView tvStatus;
     private View inputRow;
@@ -84,7 +82,6 @@ public class MainActivity extends AppCompatActivity {
         sendButton        = findViewById(R.id.btnSend);
         tvStatus          = findViewById(R.id.tvStatus);
         inputRow          = findViewById(R.id.inputRow);
-        downloadOverlay   = findViewById(R.id.downloadOverlay);
 
         View rootLayout = findViewById(R.id.rootLayout);
         final int toolbarPaddingLeft = toolbar.getPaddingLeft();
@@ -135,10 +132,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void checkAndLoadModel() {
         if (modelManager.isReady()) {
-            showDownloadOverlay(false);
             loadModelAsync();
         } else {
-            showDownloadOverlay(false);
             showStatus(getString(R.string.bundled_model_missing));
             addAssistantMessage(getString(R.string.bundled_model_missing_chat));
             setSendEnabled(false);
@@ -251,11 +246,6 @@ public class MainActivity extends AppCompatActivity {
     private void setSendEnabled(boolean enabled) {
         sendButton.setEnabled(enabled);
         inputField.setEnabled(enabled);
-    }
-
-    private void showDownloadOverlay(boolean show) {
-        downloadOverlay.setVisibility(show ? View.VISIBLE : View.GONE);
-        setSendEnabled(!show);
     }
 
     private void showStatus(String text) {

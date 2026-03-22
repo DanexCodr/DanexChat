@@ -18,7 +18,7 @@ app/
 ├── BPETokenizer.java      – Byte-level BPE tokenizer (loads tokenizer.json)
 ├── ModelManager.java      – Prepares bundled model files in app storage
 ├── ChatAdapter.java       – RecyclerView chat bubble adapter
-├── MainActivity.java      – Chat UI, download overlay, streaming responses
+├── MainActivity.java      – Chat UI and streaming responses
 └── Message.java           – Chat message data class
 ```
 
