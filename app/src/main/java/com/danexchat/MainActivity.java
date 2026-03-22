@@ -1,6 +1,7 @@
 package com.danexchat;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -31,6 +32,7 @@ import java.util.concurrent.Executors;
  */
 public class MainActivity extends AppCompatActivity {
     private static final int DEFAULT_TOOLBAR_HEIGHT_DP = 56;
+    private static final String TAG = "MainActivity";
 
     private RecyclerView  recyclerView;
     private ChatAdapter   chatAdapter;
@@ -170,7 +172,8 @@ public class MainActivity extends AppCompatActivity {
             public void onError(Exception e) {
                 showDownloadOverlay(false);
                 showStatus(getString(R.string.download_failed));
-                addAssistantMessage(getString(R.string.error_prefix, e.getMessage()));
+                Log.e(TAG, "Model download failed", e);
+                addAssistantMessage(getString(R.string.download_failed_chat));
                 setSendEnabled(false);
             }
         });

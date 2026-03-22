@@ -9,6 +9,7 @@
     <string name="loading_model">Loading SmolLM2 model…</string>
     <string name="model_ready">👋 Hi! I\'m SmolLM2, your on-device AI assistant. How can I help you today?</string>
     <string name="download_failed">Download failed</string>
+    <string name="download_failed_chat">⚠ Could not download model files. Please check your internet connection and try again.</string>
     <string name="bundled_model_missing">Bundled model files are missing from this build.</string>
     <string name="bundled_model_missing_chat">⚠ Bundled model files are missing. Please reinstall a build that includes model_q4.onnx and tokenizer.json in assets/smollm2.</string>
     <string name="load_error">Failed to load model: %1$s</string>
