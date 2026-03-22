@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * On-device inference engine for SmolLM2-135M-Instruct using ONNX Runtime.
@@ -33,6 +34,8 @@ import java.util.Set;
 public class SmolLMInference {
 
     private static final String TAG = "SmolLMInference";
+    private static final Pattern MISSING_POSITION_IDS_PATTERN =
+            Pattern.compile("\\bmissing input:\\s*position_ids\\b", Pattern.CASE_INSENSITIVE);
 
     // SmolLM2-135M architecture
     private static final int NUM_LAYERS   = 30;
@@ -126,29 +129,60 @@ public class SmolLMInference {
      * Generate a response for the given conversation history.
      * Must be called on a background thread.
      */
-    public void generate(List<Message> history, StreamCallback callback) {
+    public synchronized void generate(List<Message> history, StreamCallback callback) {
         try {
-            String prompt   = buildPrompt(history);
-            long[] promptIds = tokenizer.encodeWithSpecialTokens(prompt);
-
-            // Trim to max context
-            if (promptIds.length > MAX_CONTEXT_LEN) {
-                promptIds = Arrays.copyOfRange(
-                        promptIds, promptIds.length - MAX_CONTEXT_LEN, promptIds.length);
+            generateInternal(history, callback);
+        } catch (Exception firstError) {
+            if (!requiresPositionIds && isMissingPositionIdsError(firstError)) {
+                Log.w(TAG, "Retrying generation with position_ids enabled after runtime error", firstError);
+                requiresPositionIds = true;
+                try {
+                    generateInternal(history, callback);
+                    return;
+                } catch (Exception retryError) {
+                    Log.e(TAG, "Generation retry failed", retryError);
+                    callback.onError(retryError);
+                    return;
+                }
             }
-
-            StringBuilder responseBuilder = new StringBuilder();
-
-            if (hasKVCache) {
-                generateWithKVCache(promptIds, responseBuilder, callback);
-            } else {
-                generateNoKVCache(promptIds, responseBuilder, callback);
-            }
-
-        } catch (Exception e) {
-            Log.e(TAG, "Generation error", e);
-            callback.onError(e);
+            Log.e(TAG, "Generation error", firstError);
+            callback.onError(firstError);
         }
+    }
+
+    private void generateInternal(List<Message> history, StreamCallback callback) throws Exception {
+        String prompt   = buildPrompt(history);
+        long[] promptIds = tokenizer.encodeWithSpecialTokens(prompt);
+
+        // Trim to max context
+        if (promptIds.length > MAX_CONTEXT_LEN) {
+            promptIds = Arrays.copyOfRange(
+                    promptIds, promptIds.length - MAX_CONTEXT_LEN, promptIds.length);
+        }
+
+        StringBuilder responseBuilder = new StringBuilder();
+        if (hasKVCache) {
+            generateWithKVCache(promptIds, responseBuilder, callback);
+        } else {
+            generateNoKVCache(promptIds, responseBuilder, callback);
+        }
+    }
+
+    private static boolean isMissingPositionIdsError(Exception e) {
+        boolean sawOrtException = false;
+        Throwable t = e;
+        while (t != null) {
+            if (t instanceof OrtException) {
+                sawOrtException = true;
+            }
+            String message = t.getMessage();
+            if (sawOrtException && message != null
+                    && MISSING_POSITION_IDS_PATTERN.matcher(message).find()) {
+                return true;
+            }
+            t = t.getCause();
+        }
+        return false;
     }
 
     // -----------------------------------------------------------------
