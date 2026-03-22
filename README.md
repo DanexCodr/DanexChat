@@ -7,7 +7,7 @@ An Android chat application powered by **SmolLM2-135M-Instruct** running entirel
 - 💬 Chat interface with streaming token-by-token output
 - 🤖 **SmolLM2-135M-Instruct** — a compact, capable language model by HuggingFace
 - ⚡ Quantized (Q4) ONNX model for fast on-device inference
-- 🔐 100% on-device — no data leaves your phone after first download
+- 🔐 100% on-device — no data leaves your phone
 - 📱 Supports **Android 11–15** (API 30–35)
 
 ## Architecture
@@ -16,7 +16,7 @@ An Android chat application powered by **SmolLM2-135M-Instruct** running entirel
 app/
 ├── SmolLMInference.java   – ONNX Runtime inference engine with KV-cache
 ├── BPETokenizer.java      – Byte-level BPE tokenizer (loads tokenizer.json)
-├── ModelManager.java      – Downloads / caches model files from HuggingFace
+├── ModelManager.java      – Prepares bundled model files in app storage
 ├── ChatAdapter.java       – RecyclerView chat bubble adapter
 ├── MainActivity.java      – Chat UI, download overlay, streaming responses
 └── Message.java           – Chat message data class
@@ -24,7 +24,7 @@ app/
 
 ## How It Works
 
-1. **First launch**: the app downloads `model_q4.onnx` (~90 MB) and `tokenizer.json` from HuggingFace into the app's internal storage.
+1. **Startup**: the app prepares bundled `model_q4.onnx` and `tokenizer.json` files from `assets/smollm2/` into the app's internal storage.
 2. **Model load**: ONNX Runtime initialises the session (uses NNAPI acceleration where available).
 3. **Chat**: each user message is tokenised with the SmolLM2 ChatML template, run through the ONNX model with greedy decoding, and streamed token-by-token to the UI.
 
@@ -34,7 +34,7 @@ app/
 |---|---|
 | Model | `onnx-community/SmolLM2-135M-Instruct` |
 | Format | ONNX Q4 quantized |
-| Download size | ≈ 90 MB |
+| Model size in APK/assets | ≈ 90 MB |
 | Inference engine | ONNX Runtime Android 1.20.0 |
 | Minimum Android | API 30 (Android 11) |
 | Target Android | API 35 (Android 15) |
@@ -64,7 +64,7 @@ The resulting APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-> **Note**: The first time the app opens it will download the ~90 MB model file. Make sure the device has Wi-Fi access and around 200 MB of free storage.
+> **Note**: This project expects `app/src/main/assets/smollm2/model_q4.onnx` and `app/src/main/assets/smollm2/tokenizer.json` to be present when building.
 
 ## Dependencies
 
