@@ -224,6 +224,8 @@ public class SmolLMInference {
 
             generatedIds.add(nextToken);
             String decodedSoFar = tokenizer.decode(generatedIds);
+            // Rare tokenizer boundary fallback: if the incremental prefix check fails,
+            // stream the full decoded segment once to avoid dropping generated text.
             String piece = decodedSoFar.startsWith(streamedText)
                     ? decodedSoFar.substring(streamedText.length())
                     : decodedSoFar;
@@ -338,6 +340,8 @@ public class SmolLMInference {
             allIds.add(nextToken);
             generatedIds.add(nextToken);
             String decodedSoFar = tokenizer.decode(generatedIds);
+            // Rare tokenizer boundary fallback: if the incremental prefix check fails,
+            // stream the full decoded segment once to avoid dropping generated text.
             String piece = decodedSoFar.startsWith(streamedText)
                     ? decodedSoFar.substring(streamedText.length())
                     : decodedSoFar;

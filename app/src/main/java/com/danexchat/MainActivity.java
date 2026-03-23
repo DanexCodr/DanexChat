@@ -206,7 +206,10 @@ public class MainActivity extends AppCompatActivity {
                             int pos = messages.indexOf(aiMsg);
                             if (pos >= 0) chatAdapter.notifyItemChanged(pos);
                         }
-                        conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
+                        if (conversationHistory.isEmpty()
+                                || conversationHistory.get(conversationHistory.size() - 1).isUser()) {
+                            conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
+                        }
                         setSendEnabled(true);
                         scrollToBottom();
                     });
