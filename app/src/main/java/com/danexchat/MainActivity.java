@@ -1,6 +1,7 @@
 package com.danexchat;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -23,6 +24,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Pattern;
 
 /**
  * Main chat activity for DanexChat.
@@ -32,14 +34,20 @@ import java.util.concurrent.Executors;
  * for fully on-device chat.
  */
 public class MainActivity extends AppCompatActivity {
+    private static final String TAG = "MainActivity";
     private static final int DEFAULT_TOOLBAR_HEIGHT_DP = 56;
     // Topic overlap is computed with Jaccard similarity; below this value we treat
     // consecutive definition-style prompts as a topic switch and reset model context.
+    // Lower values make resets more aggressive, while higher values preserve context
+    // unless prompts are clearly different. 0.2 keeps mildly related follow-ups.
     private static final float TOPIC_TOKEN_OVERLAP_THRESHOLD = 0.2f;
+    private static final int MIN_TOPIC_TOKEN_LENGTH = 3;
+    private static final Pattern TOPIC_TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{L}\\p{N}]+");
     private static final Set<String> TOPIC_STOPWORDS = new HashSet<>(Arrays.asList(
             "a", "an", "the", "is", "are", "was", "were", "am", "be", "to", "of", "for", "in",
             "on", "at", "and", "or", "but", "with", "about", "this", "that", "it", "its", "as",
-            "what", "who", "when", "where", "why", "how", "tell", "me", "please"
+            "what", "who", "when", "where", "why", "how", "tell", "me", "please",
+            "do", "does", "can", "will", "would"
     ));
 
     private RecyclerView  recyclerView;
@@ -187,6 +195,7 @@ public class MainActivity extends AppCompatActivity {
         if (text.isEmpty() || smolLM == null) return;
 
         if (shouldResetConversationContext(text)) {
+            Log.d(TAG, "Resetting model conversation context for detected topic switch");
             conversationHistory.clear();
         }
 
@@ -298,9 +307,7 @@ public class MainActivity extends AppCompatActivity {
         overlap.retainAll(newTopicTokens);
         Set<String> union = new HashSet<>(previousTopicTokens);
         union.addAll(newTopicTokens);
-        if (union.isEmpty()) return false;
-        float overlapRatio = (float) overlap.size()
-                / union.size();
+        float overlapRatio = (float) overlap.size() / union.size();
         return overlapRatio < TOPIC_TOKEN_OVERLAP_THRESHOLD;
     }
 
@@ -330,9 +337,9 @@ public class MainActivity extends AppCompatActivity {
 
     private static Set<String> extractTopicTokens(String text) {
         Set<String> tokens = new HashSet<>();
-        String[] parts = text.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+");
+        String[] parts = TOPIC_TOKEN_SPLIT_PATTERN.split(text.toLowerCase(Locale.ROOT));
         for (String part : parts) {
-            if (part.length() < 3 || TOPIC_STOPWORDS.contains(part)) continue;
+            if (part.length() < MIN_TOPIC_TOKEN_LENGTH || TOPIC_STOPWORDS.contains(part)) continue;
             tokens.add(part);
         }
         return tokens;
