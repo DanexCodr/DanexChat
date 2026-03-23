@@ -17,13 +17,7 @@
     <string name="error_prefix">⚠ Error: %1$s</string>
     <string name="ars_clarify_reference">Proceeding with best match context.</string>
     <string name="ars_clarify_ambiguous_reference">Proceeding with best match context.</string>
-    <string name="new_session">New session</string>
-    <string name="plus_symbol">+</string>
-    <string name="down_symbol">⌄</string>
-    <string name="scroll_to_bottom">Scroll to bottom</string>
     <string name="settings_title">Settings</string>
-    <string name="settings_tab_general">General</string>
-    <string name="settings_tab_session">Session</string>
     <string name="settings_general_title">General settings</string>
     <string name="settings_temperature">Temperature</string>
     <string name="settings_temperature_value">Temperature: %1$.1f</string>
@@ -33,11 +27,4 @@
     <string name="settings_max_tokens_value">Max new tokens: %1$d</string>
     <string name="settings_general_theme">Theme follows your system mode automatically (light/dark).</string>
     <string name="settings_general_generation">Adjust generation behavior in real time. Lower temperature/top-p is more deterministic; higher values are more creative.</string>
-    <string name="settings_session_title">Session settings</string>
-    <string name="settings_session_swipe">Swipe horizontally across the session pager to navigate chat sessions.</string>
-    <string name="settings_session_swipe_toggle">Enable session swipe navigation</string>
-    <string name="settings_session_autoscroll">Auto-scroll only follows new tokens during active generation.</string>
-    <string name="settings_session_autoscroll_toggle">Enable auto-scroll during generation</string>
-    <string name="settings_session_stop">Use stop to interrupt the current response at any time.</string>
-    <string name="session_label">Session %1$d</string>
 </resources>
