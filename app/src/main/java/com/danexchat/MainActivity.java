@@ -42,6 +42,10 @@ public class MainActivity extends AppCompatActivity {
     // unless prompts are clearly different. 0.2 keeps mildly related follow-ups.
     private static final float TOPIC_TOKEN_OVERLAP_THRESHOLD = 0.2f;
     private static final float ARS_RESOLUTION_CONFIDENCE_THRESHOLD = 0.65f;
+    private static final float ARS_RESOLUTION_CONFIDENCE_NONE = 0f;
+    private static final float ARS_RESOLUTION_CONFIDENCE_NOT_APPLICABLE = 1f;
+    private static final float ARS_RESOLUTION_CONFIDENCE_SINGLE_SUBJECT = 0.95f;
+    private static final float ARS_RESOLUTION_CONFIDENCE_MULTI_SUBJECT = 0.55f;
     private static final int MIN_TOPIC_TOKEN_LENGTH = 3;
     private static final Pattern TOPIC_TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{L}\\p{N}]+");
     private static final Pattern DEFINITION_ARTICLE_PATTERN = Pattern.compile("^(a|an|the)\\s+");
@@ -366,25 +370,31 @@ public class MainActivity extends AppCompatActivity {
     private ArsDecision resolveAmbiguityAndSpecifier(String userText) {
         String subject = extractDefinitionSubject(userText);
         if (subject == null) {
-            if (!containsAmbiguousReference(userText)) return new ArsDecision(userText, null, 1f);
+            if (!containsAmbiguousReference(userText)) {
+                // No ARS disambiguation needed for this input.
+                return new ArsDecision(userText, null, ARS_RESOLUTION_CONFIDENCE_NOT_APPLICABLE);
+            }
             SubjectResolution resolution = resolveMostRecentConcreteSubject();
             if (resolution == null || resolution.confidence < ARS_RESOLUTION_CONFIDENCE_THRESHOLD) {
                 return new ArsDecision(userText, getString(R.string.ars_clarify_ambiguous_reference),
-                        resolution == null ? 0f : resolution.confidence);
+                        resolution == null ? ARS_RESOLUTION_CONFIDENCE_NONE : resolution.confidence);
             }
-            String rewritten = rewriteAmbiguousFollowUp(userText, resolution.subject);
+            String rewritten = rewriteAmbiguousFollowUp(userText, sanitizeResolvedSubject(resolution.subject));
             return new ArsDecision(rewritten, null, resolution.confidence);
         }
         if (!AMBIGUOUS_REFERENCES.contains(subject)) {
-            return new ArsDecision(userText, null, 1f);
+            return new ArsDecision(userText, null, ARS_RESOLUTION_CONFIDENCE_NOT_APPLICABLE);
         }
 
         SubjectResolution resolution = resolveMostRecentConcreteSubject();
         if (resolution == null || resolution.confidence < ARS_RESOLUTION_CONFIDENCE_THRESHOLD) {
             return new ArsDecision(userText, getString(R.string.ars_clarify_ambiguous_reference),
-                    resolution == null ? 0f : resolution.confidence);
+                    resolution == null ? ARS_RESOLUTION_CONFIDENCE_NONE : resolution.confidence);
         }
-        return new ArsDecision(rewriteDefinitionSubject(userText, resolution.subject), null, resolution.confidence);
+        return new ArsDecision(
+                rewriteDefinitionSubject(userText, sanitizeResolvedSubject(resolution.subject)),
+                null,
+                resolution.confidence);
     }
 
     private static String extractDefinitionSubject(String text) {
@@ -432,7 +442,14 @@ public class MainActivity extends AppCompatActivity {
             uniqueSubjects.add(subject);
         }
         if (mostRecentSubject == null) return null;
-        float confidence = uniqueSubjects.size() == 1 ? 0.95f : 0.55f;
+        // uniqueSubjects cannot be empty here because we always add the same concrete
+        // subject that initializes mostRecentSubject in the loop above.
+        // Two-level confidence scoring: one consistent recent concrete subject is highly
+        // reliable, while multiple distinct recent subjects mean the anaphora target is
+        // likely unclear.
+        float confidence = uniqueSubjects.size() == 1
+                ? ARS_RESOLUTION_CONFIDENCE_SINGLE_SUBJECT
+                : ARS_RESOLUTION_CONFIDENCE_MULTI_SUBJECT;
         return new SubjectResolution(mostRecentSubject, confidence);
     }
 
@@ -449,7 +466,16 @@ public class MainActivity extends AppCompatActivity {
         if (lower.contains("what about")) {
             return "tell me more about " + subject;
         }
+        // Last-resort fallback for non-definition ambiguous follow-ups; this favors
+        // preserving user wording with explicit context over more invasive rephrasing.
         return originalText + " (about " + subject + ")";
+    }
+
+    private static String sanitizeResolvedSubject(String subject) {
+        return subject.replace('\n', ' ')
+                .replace('\r', ' ')
+                .replace('\t', ' ')
+                .trim();
     }
 
     /** Result of ARS preprocessing before model generation. */
