@@ -45,15 +45,6 @@ public class MainActivity extends AppCompatActivity {
     // Definition-style turns are treated as a topic switch when token overlap drops below
     // this Jaccard threshold, which resets model-side context for cleaner answers.
     private static final float TOPIC_TOKEN_OVERLAP_THRESHOLD = 0.2f;
-    private static final float ARS_RESOLUTION_CONFIDENCE_NONE = 0f;
-    private static final float ARS_RESOLUTION_CONFIDENCE_NOT_APPLICABLE = 1f;
-    private static final float ARS_RESOLUTION_CONFIDENCE_SINGLE_SUBJECT = 0.95f;
-    private static final float ARS_RESOLUTION_CONFIDENCE_MULTI_SUBJECT = 0.55f;
-    // Recency-aware confidence tuning: older concrete subjects receive a small penalty
-    // so recent context wins while preserving a non-zero confidence floor.
-    private static final float ARS_RECENCY_PENALTY_PER_TURN = 0.05f;
-    private static final float ARS_MAX_RECENCY_PENALTY = 0.3f;
-    private static final float ARS_MIN_CONFIDENCE = 0.35f;
     private static final int MIN_TOPIC_TOKEN_LENGTH = 3;
     private static final Pattern TOPIC_TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{L}\\p{N}]+");
     private static final Pattern DEFINITION_ARTICLE_PATTERN = Pattern.compile("^(a|an|the)\\s+");
@@ -181,7 +172,7 @@ public class MainActivity extends AppCompatActivity {
             public void afterTextChanged(Editable s) {}
         });
         scrollToBottomButton.setOnClickListener(v -> {
-            scrollToBottomImmediate();
+            smoothScrollToLatestMessage();
             shouldAutoScrollDuringGeneration = true;
             updateScrollToBottomVisibility();
         });
@@ -291,22 +282,21 @@ public class MainActivity extends AppCompatActivity {
             currentSession.conversationHistory.clear();
         }
 
-        ArsDecision arsDecision = resolveAmbiguityAndSpecifier(currentSession.conversationHistory, text);
+        String modelText = resolveAmbiguityAndSpecifier(currentSession.conversationHistory, text);
         inputField.setText("");
 
         Message userMsg = new Message(Message.ROLE_USER, text);
         addMessage(userMsg);
         currentSession.conversationHistory.add(userMsg);
-        if (!arsDecision.modelText.equals(text)) {
-            Log.d(TAG, "ARS specifier applied (confidence=" + arsDecision.confidence
-                    + "): '" + text + "' -> '" + arsDecision.modelText + "'");
+        if (!modelText.equals(text)) {
+            Log.d(TAG, "Ambiguity resolved: '" + text + "' -> '" + modelText + "'");
         }
 
         Message aiMsg = new Message(Message.ROLE_ASSISTANT, "");
         addMessage(aiMsg);
         List<Message> history = new ArrayList<>(currentSession.conversationHistory);
-        if (!arsDecision.modelText.equals(text)) {
-            history.set(history.size() - 1, new Message(Message.ROLE_USER, arsDecision.modelText));
+        if (!modelText.equals(text)) {
+            history.set(history.size() - 1, new Message(Message.ROLE_USER, modelText));
         }
 
         isGenerating = true;
@@ -323,7 +313,7 @@ public class MainActivity extends AppCompatActivity {
                             int pos = getCurrentMessages().indexOf(aiMsg);
                             if (pos >= 0) chatAdapter.notifyItemChanged(pos);
                             if (isGenerating && shouldAutoScrollDuringGeneration) {
-                                scrollToBottomImmediate();
+                                smoothScrollToLatestMessage();
                             }
                         });
                     }
@@ -369,7 +359,7 @@ public class MainActivity extends AppCompatActivity {
         currentMessages.add(msg);
         chatAdapter.notifyItemInserted(currentMessages.size() - 1);
         if (isGenerating && shouldAutoScrollDuringGeneration) {
-            scrollToBottomImmediate();
+            smoothScrollToLatestMessage();
         } else {
             updateScrollToBottomVisibility();
         }
@@ -400,10 +390,10 @@ public class MainActivity extends AppCompatActivity {
         setSendButtonState(enabled, isGenerating);
     }
 
-    private void scrollToBottomImmediate() {
+    private void smoothScrollToLatestMessage() {
         List<Message> currentMessages = getCurrentMessages();
         if (!currentMessages.isEmpty()) {
-            recyclerView.scrollToPosition(currentMessages.size() - 1);
+            layoutManager.smoothScrollToPosition(recyclerView, null, currentMessages.size() - 1);
         }
         updateScrollToBottomVisibility();
     }
@@ -447,7 +437,7 @@ public class MainActivity extends AppCompatActivity {
     private void switchToSession(int index) {
         currentSessionIndex = index;
         chatAdapter.setMessages(getCurrentMessages());
-        scrollToBottomImmediate();
+        smoothScrollToLatestMessage();
         refreshSessionControls();
     }
 
@@ -539,30 +529,27 @@ public class MainActivity extends AppCompatActivity {
         return tokens;
     }
 
-    private ArsDecision resolveAmbiguityAndSpecifier(List<Message> conversationHistory, String userText) {
+    private String resolveAmbiguityAndSpecifier(List<Message> conversationHistory, String userText) {
         String subject = extractDefinitionSubject(userText);
         if (subject == null) {
             if (!containsAmbiguousReference(userText)) {
-                return new ArsDecision(userText, ARS_RESOLUTION_CONFIDENCE_NOT_APPLICABLE);
+                return userText;
             }
-            SubjectResolution resolution = resolveMostRecentConcreteSubject(conversationHistory);
-            if (resolution == null) {
-                return new ArsDecision(userText, ARS_RESOLUTION_CONFIDENCE_NONE);
+            String resolvedSubject = resolveMostRecentConcreteSubject(conversationHistory);
+            if (resolvedSubject == null) {
+                return userText;
             }
-            String rewritten = rewriteAmbiguousFollowUp(userText, sanitizeResolvedSubject(resolution.subject));
-            return new ArsDecision(rewritten, resolution.confidence);
+            return rewriteAmbiguousFollowUp(userText, sanitizeResolvedSubject(resolvedSubject));
         }
         if (!AMBIGUOUS_REFERENCES.contains(subject)) {
-            return new ArsDecision(userText, ARS_RESOLUTION_CONFIDENCE_NOT_APPLICABLE);
+            return userText;
         }
 
-        SubjectResolution resolution = resolveMostRecentConcreteSubject(conversationHistory);
-        if (resolution == null) {
-            return new ArsDecision(userText, ARS_RESOLUTION_CONFIDENCE_NONE);
+        String resolvedSubject = resolveMostRecentConcreteSubject(conversationHistory);
+        if (resolvedSubject == null) {
+            return userText;
         }
-        return new ArsDecision(
-                rewriteDefinitionSubject(userText, sanitizeResolvedSubject(resolution.subject)),
-                resolution.confidence);
+        return rewriteDefinitionSubject(userText, sanitizeResolvedSubject(resolvedSubject));
     }
 
     private static String extractDefinitionSubject(String text) {
@@ -596,33 +583,15 @@ public class MainActivity extends AppCompatActivity {
         return "what is " + subject + "?";
     }
 
-    private SubjectResolution resolveMostRecentConcreteSubject(List<Message> conversationHistory) {
-        String mostRecentSubject = null;
-        Set<String> uniqueSubjects = new HashSet<>();
-        int concreteSubjectsSeen = 0;
-        int subjectRecencyOffset = 0;
+    private String resolveMostRecentConcreteSubject(List<Message> conversationHistory) {
         for (int i = conversationHistory.size() - 1; i >= 0; i--) {
             Message message = conversationHistory.get(i);
             if (!message.isUser()) continue;
             String subject = extractDefinitionSubject(message.getContent());
             if (subject == null || AMBIGUOUS_REFERENCES.contains(subject)) continue;
-            concreteSubjectsSeen++;
-            if (mostRecentSubject == null) {
-                mostRecentSubject = subject;
-                subjectRecencyOffset = concreteSubjectsSeen - 1;
-            }
-            uniqueSubjects.add(subject);
+            return subject;
         }
-        if (mostRecentSubject == null) return null;
-        // Two-level base confidence: one consistent concrete subject is highly reliable,
-        // while multiple distinct candidates lower confidence before recency adjustment.
-        float baseConfidence = uniqueSubjects.size() == 1
-                ? ARS_RESOLUTION_CONFIDENCE_SINGLE_SUBJECT
-                : ARS_RESOLUTION_CONFIDENCE_MULTI_SUBJECT;
-        float recencyPenalty = Math.min(ARS_MAX_RECENCY_PENALTY,
-                subjectRecencyOffset * ARS_RECENCY_PENALTY_PER_TURN);
-        float confidence = Math.max(ARS_MIN_CONFIDENCE, baseConfidence - recencyPenalty);
-        return new SubjectResolution(mostRecentSubject, confidence);
+        return null;
     }
 
     private static boolean containsAmbiguousReference(String text) {
@@ -648,24 +617,4 @@ public class MainActivity extends AppCompatActivity {
                 .trim();
     }
 
-    /** Result of ARS preprocessing before model generation. */
-    private static class ArsDecision {
-        final String modelText;
-        final float confidence;
-
-        ArsDecision(String modelText, float confidence) {
-            this.modelText = modelText;
-            this.confidence = confidence;
-        }
-    }
-
-    private static class SubjectResolution {
-        final String subject;
-        final float confidence;
-
-        SubjectResolution(String subject, float confidence) {
-            this.subject = subject;
-            this.confidence = confidence;
-        }
-    }
 }
