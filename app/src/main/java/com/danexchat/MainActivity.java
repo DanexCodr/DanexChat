@@ -16,7 +16,11 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -29,6 +33,12 @@ import java.util.concurrent.Executors;
  */
 public class MainActivity extends AppCompatActivity {
     private static final int DEFAULT_TOOLBAR_HEIGHT_DP = 56;
+    private static final float TOPIC_TOKEN_OVERLAP_THRESHOLD = 0.2f;
+    private static final Set<String> TOPIC_STOPWORDS = new HashSet<>(Arrays.asList(
+            "a", "an", "the", "is", "are", "was", "were", "am", "be", "to", "of", "for", "in",
+            "on", "at", "and", "or", "but", "with", "about", "this", "that", "it", "its", "as",
+            "what", "who", "when", "where", "why", "how", "tell", "me", "please"
+    ));
 
     private RecyclerView  recyclerView;
     private ChatAdapter   chatAdapter;
@@ -174,6 +184,10 @@ public class MainActivity extends AppCompatActivity {
         String text = inputField.getText().toString().trim();
         if (text.isEmpty() || smolLM == null) return;
 
+        if (shouldResetConversationContext(text)) {
+            conversationHistory.clear();
+        }
+
         inputField.setText("");
         setSendEnabled(false);
 
@@ -261,5 +275,58 @@ public class MainActivity extends AppCompatActivity {
 
     private void hideStatus() {
         tvStatus.setVisibility(View.GONE);
+    }
+
+    private boolean shouldResetConversationContext(String newUserText) {
+        Message lastUserMessage = findLastUserMessage();
+        if (lastUserMessage == null) return false;
+
+        if (!isDefinitionStyleQuestion(lastUserMessage.getContent())
+                || !isDefinitionStyleQuestion(newUserText)) {
+            return false;
+        }
+
+        Set<String> previousTopicTokens = extractTopicTokens(lastUserMessage.getContent());
+        Set<String> newTopicTokens = extractTopicTokens(newUserText);
+        if (previousTopicTokens.isEmpty() || newTopicTokens.isEmpty()) {
+            return false;
+        }
+
+        Set<String> overlap = new HashSet<>(previousTopicTokens);
+        overlap.retainAll(newTopicTokens);
+        float overlapRatio = (float) overlap.size()
+                / Math.min(previousTopicTokens.size(), newTopicTokens.size());
+        return overlapRatio < TOPIC_TOKEN_OVERLAP_THRESHOLD;
+    }
+
+    private Message findLastUserMessage() {
+        for (int i = conversationHistory.size() - 1; i >= 0; i--) {
+            Message message = conversationHistory.get(i);
+            if (message.isUser()) {
+                return message;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isDefinitionStyleQuestion(String text) {
+        String normalized = text.trim().toLowerCase(Locale.ROOT);
+        if (!normalized.endsWith("?")) return false;
+        return normalized.startsWith("what is ")
+                || normalized.startsWith("what are ")
+                || normalized.startsWith("who is ")
+                || normalized.startsWith("who are ")
+                || normalized.startsWith("define ")
+                || normalized.startsWith("tell me about ");
+    }
+
+    private static Set<String> extractTopicTokens(String text) {
+        Set<String> tokens = new HashSet<>();
+        String[] parts = text.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+");
+        for (String part : parts) {
+            if (part.length() < 3 || TOPIC_STOPWORDS.contains(part)) continue;
+            tokens.add(part);
+        }
+        return tokens;
     }
 }

@@ -119,6 +119,11 @@ public class SmolLMInference {
         StringBuilder sb = new StringBuilder();
         sb.append("<|im_start|>system\n")
           .append("You are SmolLM, a helpful AI assistant trained by Hugging Face.\n")
+          .append("Always answer the user's latest message directly.\n")
+          .append("Use earlier messages only when they are relevant to the current request.\n")
+          .append("If the user switches topics, switch context immediately and do not continue the old topic.\n")
+          .append("If a request is ambiguous, ask a short clarifying question before assuming details.\n")
+          .append("Keep answers clear, factual, and concise.\n")
           .append("<|im_end|>\n");
         for (Message msg : history) {
             sb.append(msg.isUser() ? "<|im_start|>user\n" : "<|im_start|>assistant\n")
