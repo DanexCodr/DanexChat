@@ -46,6 +46,13 @@ public class MainActivity extends AppCompatActivity {
     private static final int MIN_TOPIC_TOKEN_LENGTH = 3;
     private static final Pattern TOPIC_TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{L}\\p{N}]+");
     private static final Pattern DEFINITION_ARTICLE_PATTERN = Pattern.compile("^(a|an|the)\\s+");
+    private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
+    private static final int RECENT_CONTEXT_TOKEN_BUDGET = 1500;
+    private static final int SUMMARY_TOKEN_BUDGET = 300;
+    private static final int ARCHIVE_TOKEN_BUDGET = 220;
+    private static final int SUMMARY_BATCH_SIZE = 8;
+    private static final int KEEP_RECENT_MESSAGES = 6;
+    private static final int SUMMARY_SNIPPET_MAX_CHARS = 140;
     private static final Set<String> AMBIGUOUS_REFERENCES = new HashSet<>(Arrays.asList(
             "it", "this", "that", "they", "them", "he", "she", "him", "her", "these", "those"
     ));
@@ -67,6 +74,8 @@ public class MainActivity extends AppCompatActivity {
     private View inputRow;
     private final List<Message> messages = new ArrayList<>();
     private final List<Message> conversationHistory = new ArrayList<>();
+    private String conversationSummary = "";
+    private String archivedSummary = "";
 
     private ModelManager modelManager;
     private SmolLMInference smolLM;
@@ -230,6 +239,8 @@ public class MainActivity extends AppCompatActivity {
         if (shouldResetConversationContext(conversationHistory, text)) {
             Log.d(TAG, "Resetting model conversation context for detected topic switch");
             conversationHistory.clear();
+            conversationSummary = "";
+            archivedSummary = "";
         }
 
         String modelText = resolveAmbiguityAndSpecifier(conversationHistory, text);
@@ -238,6 +249,7 @@ public class MainActivity extends AppCompatActivity {
         Message userMsg = new Message(Message.ROLE_USER, text);
         addMessage(userMsg);
         conversationHistory.add(userMsg);
+        compactConversationHistoryIfNeeded();
         if (!modelText.equals(text)) {
             Log.d(TAG, "Ambiguity resolved: '" + text + "' -> '" + modelText + "'");
         }
@@ -253,7 +265,7 @@ public class MainActivity extends AppCompatActivity {
         updateSendEnabledForInput();
 
         bgExecutor.execute(() ->
-                smolLM.generate(history, new SmolLMInference.StreamCallback() {
+                smolLM.generate(history, conversationSummary, archivedSummary, new SmolLMInference.StreamCallback() {
                     @Override
                     public void onToken(String piece) {
                         runOnUiThread(() -> {
@@ -274,6 +286,7 @@ public class MainActivity extends AppCompatActivity {
                             if (conversationHistory.isEmpty()
                                     || conversationHistory.get(conversationHistory.size() - 1).isUser()) {
                                 conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
+                                compactConversationHistoryIfNeeded();
                             }
                             isGenerating = false;
                             updateSendEnabledForInput();
@@ -485,6 +498,87 @@ public class MainActivity extends AppCompatActivity {
                 .replace('\r', ' ')
                 .replace('\t', ' ')
                 .trim();
+    }
+
+    private void compactConversationHistoryIfNeeded() {
+        while (estimateMessageTokenCount(conversationHistory) > RECENT_CONTEXT_TOKEN_BUDGET
+                && conversationHistory.size() > KEEP_RECENT_MESSAGES) {
+            int maxCompressible = conversationHistory.size() - KEEP_RECENT_MESSAGES;
+            int compressCount = Math.min(SUMMARY_BATCH_SIZE, maxCompressible);
+            List<Message> toCompress = new ArrayList<>(conversationHistory.subList(0, compressCount));
+            conversationHistory.subList(0, compressCount).clear();
+            conversationSummary = mergeSummary(conversationSummary, toCompress, SUMMARY_TOKEN_BUDGET);
+        }
+        if (estimateTextTokens(conversationSummary) > SUMMARY_TOKEN_BUDGET) {
+            archivedSummary = mergeHighLevelSummary(archivedSummary, conversationSummary);
+            conversationSummary = shrinkToTokenBudget(conversationSummary, SUMMARY_TOKEN_BUDGET);
+        }
+    }
+
+    private static String mergeSummary(String existingSummary, List<Message> messagesToCompress, int tokenBudget) {
+        StringBuilder sb = new StringBuilder();
+        if (!existingSummary.isEmpty()) {
+            sb.append(existingSummary);
+        }
+        for (Message msg : messagesToCompress) {
+            String normalized = normalizeWhitespace(msg.getContent());
+            if (normalized.isEmpty()) continue;
+            if (normalized.length() > SUMMARY_SNIPPET_MAX_CHARS) {
+                normalized = normalized.substring(0, SUMMARY_SNIPPET_MAX_CHARS).trim() + "...";
+            }
+            if (sb.length() > 0) sb.append(" | ");
+            sb.append(msg.isUser() ? "U: " : "A: ").append(normalized);
+        }
+        return shrinkToTokenBudget(sb.toString(), tokenBudget);
+    }
+
+    private static String mergeHighLevelSummary(String existingArchive, String summaryToArchive) {
+        String condensed = shrinkToTokenBudget(summaryToArchive, ARCHIVE_TOKEN_BUDGET / 2);
+        if (condensed.isEmpty()) return existingArchive;
+        StringBuilder merged = new StringBuilder();
+        if (!existingArchive.isEmpty()) {
+            merged.append(existingArchive).append(" || ");
+        }
+        merged.append(condensed);
+        return shrinkToTokenBudget(merged.toString(), ARCHIVE_TOKEN_BUDGET);
+    }
+
+    private static int estimateMessageTokenCount(List<Message> history) {
+        int count = 0;
+        for (Message message : history) {
+            count += estimateTextTokens(message.getContent()) + 4;
+        }
+        return count;
+    }
+
+    private static int estimateTextTokens(String text) {
+        String normalized = normalizeWhitespace(text);
+        if (normalized.isEmpty()) return 0;
+        int words = normalized.split(" ").length;
+        int chars = normalized.length();
+        int charEstimate = Math.max(1, chars / 4);
+        return Math.max(words, charEstimate);
+    }
+
+    private static String shrinkToTokenBudget(String text, int tokenBudget) {
+        String normalized = normalizeWhitespace(text);
+        if (normalized.isEmpty()) return "";
+        if (estimateTextTokens(normalized) <= tokenBudget) return normalized;
+        String[] words = normalized.split(" ");
+        int approxWordBudget = Math.max(1, tokenBudget);
+        int start = Math.max(0, words.length - approxWordBudget);
+        StringBuilder sb = new StringBuilder();
+        if (start > 0) sb.append("... ");
+        for (int i = start; i < words.length; i++) {
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(words[i]);
+        }
+        return sb.toString().trim();
+    }
+
+    private static String normalizeWhitespace(String text) {
+        if (text == null) return "";
+        return WHITESPACE_PATTERN.matcher(text).replaceAll(" ").trim();
     }
 
 }
