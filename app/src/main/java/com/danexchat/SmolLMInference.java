@@ -49,6 +49,8 @@ public class SmolLMInference {
     private static final int MAX_NEW_TOKENS  = 512;
     private static final int MIN_NEW_TOKENS  = 32;
     private static final int MAX_CONTEXT_LEN = 2048;
+    private static final int ATTENTION_SINK_TOKEN_COUNT = 128;
+    private static final int ATTENTION_SINK_MAX_CONTEXT_DIVISOR = 2;
     private static final float REPETITION_PENALTY = 1.15f;
     private static final int REPETITION_WINDOW = 128;
     private static final int NO_REPEAT_NGRAM_SIZE = 3;
@@ -155,6 +157,8 @@ public class SmolLMInference {
            .append("If a request is ambiguous, pick the best-supported interpretation and continue directly.\n")
            .append("Keep answers clear, factual, and concise.\n")
            .append("<|im_end|>\n");
+        appendSummaryBlock(sb, "Archived conversation summary", archivedSummary);
+        appendSummaryBlock(sb, "Conversation summary", summary);
         for (Message msg : history) {
             sb.append(msg.isUser() ? "<|im_start|>user\n" : "<|im_start|>assistant\n")
               .append(msg.getContent()).append('\n')
@@ -214,11 +218,8 @@ public class SmolLMInference {
         String prompt   = buildPrompt(history, summary, archivedSummary);
         long[] promptIds = tokenizer.encodeWithSpecialTokens(prompt);
 
-        // Trim to max context
-        if (promptIds.length > MAX_CONTEXT_LEN) {
-            promptIds = Arrays.copyOfRange(
-                    promptIds, promptIds.length - MAX_CONTEXT_LEN, promptIds.length);
-        }
+        // Trim to max context with an attention sink prefix + rolling recent window.
+        promptIds = trimPromptWithAttentionSink(promptIds);
 
         StringBuilder responseBuilder = new StringBuilder();
         if (hasKVCache) {
@@ -243,6 +244,35 @@ public class SmolLMInference {
             t = t.getCause();
         }
         return false;
+    }
+
+    private static void appendSummaryBlock(StringBuilder sb, String label, String summary) {
+        if (summary == null) return;
+        String trimmed = summary.trim();
+        if (trimmed.isEmpty()) return;
+        sb.append("<|im_start|>system\n")
+          .append(label)
+          .append(": ")
+          .append(trimmed)
+          .append('\n')
+          .append("<|im_end|>\n");
+    }
+
+    private static long[] trimPromptWithAttentionSink(long[] promptIds) {
+        if (promptIds.length <= MAX_CONTEXT_LEN) {
+            return promptIds;
+        }
+
+        // Keep sink bounded so we always preserve substantial recent context.
+        int sinkLen = Math.min(
+                ATTENTION_SINK_TOKEN_COUNT,
+                MAX_CONTEXT_LEN / ATTENTION_SINK_MAX_CONTEXT_DIVISOR
+        );
+        int tailLen = MAX_CONTEXT_LEN - sinkLen;
+        long[] trimmed = new long[MAX_CONTEXT_LEN];
+        System.arraycopy(promptIds, 0, trimmed, 0, sinkLen);
+        System.arraycopy(promptIds, promptIds.length - tailLen, trimmed, sinkLen, tailLen);
+        return trimmed;
     }
 
     // -----------------------------------------------------------------
