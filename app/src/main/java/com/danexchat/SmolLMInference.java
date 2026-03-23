@@ -14,6 +14,7 @@ import java.nio.LongBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -45,6 +46,9 @@ public class SmolLMInference {
     // Generation limits
     private static final int MAX_NEW_TOKENS  = 512;
     private static final int MAX_CONTEXT_LEN = 2048;
+    private static final float REPETITION_PENALTY = 1.15f;
+    private static final int REPETITION_WINDOW = 128;
+    private static final int NO_REPEAT_NGRAM_SIZE = 3;
 
     private final OrtEnvironment env;
     private final OrtSession session;
@@ -218,7 +222,8 @@ public class SmolLMInference {
             cachedVals = sr.newVals;
             pastLen    = totalLen;
 
-            long nextToken = sr.nextToken;
+            long nextToken = selectNextToken(
+                    sr.lastLogits, buildContextIds(promptIds, generatedIds), generatedIds);
             if (nextToken == BPETokenizer.TOKEN_IM_END ||
                     nextToken == BPETokenizer.TOKEN_EOS) break;
 
@@ -275,7 +280,7 @@ public class SmolLMInference {
         StepResult result = new StepResult(numLayers);
         try (OrtSession.Result ort = session.run(inputs)) {
             float[][][] logits = (float[][][]) ort.get("logits").get().getValue();
-            result.nextToken = argmax(logits[0][inputIds.length - 1]);
+            result.lastLogits = logits[0][inputIds.length - 1];
 
             int newTotal = pastLen + inputIds.length;
             for (int i = 0; i < numLayers; i++) {
@@ -329,7 +334,7 @@ public class SmolLMInference {
             long nextToken;
             try (OrtSession.Result ort = session.run(inputs)) {
                 float[][][] logits = (float[][][]) ort.get("logits").get().getValue();
-                nextToken = argmax(logits[0][ids.length - 1]);
+                nextToken = selectNextToken(logits[0][ids.length - 1], ids, generatedIds);
             } finally {
                 for (OnnxTensor t : inputs.values()) t.close();
             }
@@ -385,6 +390,72 @@ public class SmolLMInference {
         return best;
     }
 
+    private static long selectNextToken(float[] logits, long[] contextIds, List<Long> generatedIds) {
+        float[] adjusted = Arrays.copyOf(logits, logits.length);
+        applyRepetitionPenalty(adjusted, contextIds);
+        applyNoRepeatNgram(adjusted, generatedIds);
+        return argmax(adjusted);
+    }
+
+    private static void applyRepetitionPenalty(float[] logits, long[] contextIds) {
+        Set<Long> recentTokenIds = new HashSet<>();
+
+        int contextStart = Math.max(0, contextIds.length - REPETITION_WINDOW);
+        for (int i = contextStart; i < contextIds.length; i++) {
+            recentTokenIds.add(contextIds[i]);
+        }
+
+        for (Long tokenId : recentTokenIds) {
+            int index = tokenId.intValue();
+            if (index < 0 || index >= logits.length) continue;
+            // Same logit-space repetition penalty used by common Transformer generation:
+            // positive logits are divided, while negative logits are multiplied, so repeated
+            // tokens always become less likely regardless of sign.
+            logits[index] = logits[index] > 0f
+                    ? logits[index] / REPETITION_PENALTY
+                    : logits[index] * REPETITION_PENALTY;
+        }
+    }
+
+    private static void applyNoRepeatNgram(float[] logits, List<Long> generatedIds) {
+        if (generatedIds.size() < NO_REPEAT_NGRAM_SIZE - 1) return;
+        int prefixLen = NO_REPEAT_NGRAM_SIZE - 1;
+        Map<String, Set<Long>> seenContinuations = new HashMap<>();
+        for (int i = 0; i <= generatedIds.size() - NO_REPEAT_NGRAM_SIZE; i++) {
+            String key = buildNgramPrefixKey(generatedIds, i, prefixLen);
+            long continuation = generatedIds.get(i + prefixLen);
+            seenContinuations.computeIfAbsent(key, ignored -> new HashSet<>()).add(continuation);
+        }
+
+        String currentPrefix = buildNgramPrefixKey(
+                generatedIds, generatedIds.size() - prefixLen, prefixLen);
+        Set<Long> bannedContinuations = seenContinuations.get(currentPrefix);
+        if (bannedContinuations == null) return;
+        for (Long bannedToken : bannedContinuations) {
+            int banned = bannedToken.intValue();
+            if (banned >= 0 && banned < logits.length) {
+                logits[banned] = Float.NEGATIVE_INFINITY;
+            }
+        }
+    }
+
+    private static String buildNgramPrefixKey(List<Long> tokens, int start, int length) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < length; i++) {
+            if (i > 0) sb.append(',');
+            sb.append(tokens.get(start + i));
+        }
+        return sb.toString();
+    }
+
+    private static long[] buildContextIds(long[] promptIds, List<Long> generatedIds) {
+        long[] context = Arrays.copyOf(promptIds, promptIds.length + generatedIds.size());
+        for (int i = 0; i < generatedIds.size(); i++) {
+            context[promptIds.length + i] = generatedIds.get(i);
+        }
+        return context;
+    }
+
     private static long[] toLongArray(List<Long> list) {
         long[] arr = new long[list.size()];
         for (int i = 0; i < list.size(); i++) arr[i] = list.get(i);
@@ -401,7 +472,7 @@ public class SmolLMInference {
     // -----------------------------------------------------------------
 
     private static class StepResult {
-        long nextToken;
+        float[] lastLogits;
         final float[][] newKeys;
         final float[][] newVals;
 
