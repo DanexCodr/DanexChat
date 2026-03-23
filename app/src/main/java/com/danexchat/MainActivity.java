@@ -33,6 +33,8 @@ import java.util.concurrent.Executors;
  */
 public class MainActivity extends AppCompatActivity {
     private static final int DEFAULT_TOOLBAR_HEIGHT_DP = 56;
+    // Topic overlap is computed with Jaccard similarity; below this value we treat
+    // consecutive definition-style prompts as a topic switch and reset model context.
     private static final float TOPIC_TOKEN_OVERLAP_THRESHOLD = 0.2f;
     private static final Set<String> TOPIC_STOPWORDS = new HashSet<>(Arrays.asList(
             "a", "an", "the", "is", "are", "was", "were", "am", "be", "to", "of", "for", "in",
@@ -294,8 +296,11 @@ public class MainActivity extends AppCompatActivity {
 
         Set<String> overlap = new HashSet<>(previousTopicTokens);
         overlap.retainAll(newTopicTokens);
+        Set<String> union = new HashSet<>(previousTopicTokens);
+        union.addAll(newTopicTokens);
+        if (union.isEmpty()) return false;
         float overlapRatio = (float) overlap.size()
-                / Math.min(previousTopicTokens.size(), newTopicTokens.size());
+                / union.size();
         return overlapRatio < TOPIC_TOKEN_OVERLAP_THRESHOLD;
     }
 
@@ -311,7 +316,10 @@ public class MainActivity extends AppCompatActivity {
 
     private static boolean isDefinitionStyleQuestion(String text) {
         String normalized = text.trim().toLowerCase(Locale.ROOT);
-        if (!normalized.endsWith("?")) return false;
+        if (normalized.isEmpty()) return false;
+        if (normalized.endsWith("?")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+        }
         return normalized.startsWith("what is ")
                 || normalized.startsWith("what are ")
                 || normalized.startsWith("who is ")
