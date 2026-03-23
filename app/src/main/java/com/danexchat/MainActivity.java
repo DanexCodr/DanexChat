@@ -1,11 +1,15 @@
 package com.danexchat;
 
+import android.content.Intent;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -15,6 +19,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.viewpager2.widget.ViewPager2;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -36,16 +41,13 @@ import java.util.regex.Pattern;
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
     private static final int DEFAULT_TOOLBAR_HEIGHT_DP = 56;
-    // Topic overlap is computed with Jaccard similarity; below this value we treat
-    // consecutive definition-style prompts as a topic switch and reset model context.
-    // Lower values make resets more aggressive, while higher values preserve context
-    // unless prompts are clearly different. 0.2 keeps mildly related follow-ups.
     private static final float TOPIC_TOKEN_OVERLAP_THRESHOLD = 0.2f;
-    private static final float ARS_RESOLUTION_CONFIDENCE_THRESHOLD = 0.65f;
     private static final float ARS_RESOLUTION_CONFIDENCE_NONE = 0f;
     private static final float ARS_RESOLUTION_CONFIDENCE_NOT_APPLICABLE = 1f;
     private static final float ARS_RESOLUTION_CONFIDENCE_SINGLE_SUBJECT = 0.95f;
     private static final float ARS_RESOLUTION_CONFIDENCE_MULTI_SUBJECT = 0.55f;
+    private static final float ARS_RECENCY_PENALTY_PER_TURN = 0.05f;
+    private static final float ARS_MIN_CONFIDENCE = 0.35f;
     private static final int MIN_TOPIC_TOKEN_LENGTH = 3;
     private static final Pattern TOPIC_TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{L}\\p{N}]+");
     private static final Pattern DEFINITION_ARTICLE_PATTERN = Pattern.compile("^(a|an|the)\\s+");
@@ -59,26 +61,30 @@ public class MainActivity extends AppCompatActivity {
             "do", "does", "can", "will", "would"
     ));
 
-    private RecyclerView  recyclerView;
-    private ChatAdapter   chatAdapter;
-    private List<Message> messages;
-    private List<Message> conversationHistory;
+    private RecyclerView recyclerView;
+    private ChatAdapter chatAdapter;
+    private LinearLayoutManager layoutManager;
+    private EditText inputField;
+    private Button sendButton;
+    private Button scrollToBottomButton;
+    private Button newSessionTopButton;
+    private ImageButton settingsButton;
+    private ViewPager2 sessionsPager;
+    private ChatSessionsPagerAdapter sessionsPagerAdapter;
 
-    private EditText  inputField;
-    private Button    sendButton;
-
-    // Inline status bar (model loading / errors)
     private TextView tvStatus;
     private View inputRow;
 
-    private ModelManager    modelManager;
-    private SmolLMInference smolLM;
+    private final List<ChatSession> sessions = new ArrayList<>();
+    private int currentSessionIndex = -1;
 
+    private ModelManager modelManager;
+    private SmolLMInference smolLM;
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
 
-    // -----------------------------------------------------------------
-    // Lifecycle
-    // -----------------------------------------------------------------
+    private volatile boolean isGenerating = false;
+    private volatile boolean shouldAutoScrollDuringGeneration = true;
+    private boolean modelReady = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -87,6 +93,8 @@ public class MainActivity extends AppCompatActivity {
 
         bindViews();
         setupRecyclerView();
+        setupSessionsPager();
+        createAndSwitchToNewSession();
 
         modelManager = new ModelManager(this);
         checkAndLoadModel();
@@ -99,19 +107,19 @@ public class MainActivity extends AppCompatActivity {
         if (smolLM != null) smolLM.close();
     }
 
-    // -----------------------------------------------------------------
-    // View binding
-    // -----------------------------------------------------------------
-
     private void bindViews() {
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
-        recyclerView      = findViewById(R.id.recyclerViewMessages);
-        inputField        = findViewById(R.id.etUserInput);
-        sendButton        = findViewById(R.id.btnSend);
-        tvStatus          = findViewById(R.id.tvStatus);
-        inputRow          = findViewById(R.id.inputRow);
+        recyclerView = findViewById(R.id.recyclerViewMessages);
+        inputField = findViewById(R.id.etUserInput);
+        sendButton = findViewById(R.id.btnSend);
+        tvStatus = findViewById(R.id.tvStatus);
+        inputRow = findViewById(R.id.inputRow);
+        scrollToBottomButton = findViewById(R.id.btnScrollToBottom);
+        newSessionTopButton = findViewById(R.id.btnNewSessionTop);
+        settingsButton = findViewById(R.id.btnSettings);
+        sessionsPager = findViewById(R.id.viewPagerSessions);
 
         View rootLayout = findViewById(R.id.rootLayout);
         final int toolbarPaddingLeft = toolbar.getPaddingLeft();
@@ -144,22 +152,59 @@ public class MainActivity extends AppCompatActivity {
         });
         ViewCompat.requestApplyInsets(rootLayout);
 
-        sendButton.setOnClickListener(v -> onSendClicked());
+        sendButton.setOnClickListener(v -> onSendOrStopClicked());
+        inputField.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                updateSendEnabledForInput();
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {}
+        });
+        scrollToBottomButton.setOnClickListener(v -> {
+            scrollToBottomImmediate();
+            shouldAutoScrollDuringGeneration = true;
+            updateScrollToBottomVisibility();
+        });
+        newSessionTopButton.setOnClickListener(v -> onCreateNewSession());
+        settingsButton.setOnClickListener(v ->
+                startActivity(new Intent(MainActivity.this, SettingsActivity.class)));
     }
 
     private void setupRecyclerView() {
-        messages = new ArrayList<>();
-        conversationHistory = new ArrayList<>();
-        chatAdapter = new ChatAdapter(messages);
-        LinearLayoutManager llm = new LinearLayoutManager(this);
-        llm.setStackFromEnd(true);
-        recyclerView.setLayoutManager(llm);
+        chatAdapter = new ChatAdapter(new ArrayList<>());
+        layoutManager = new LinearLayoutManager(this);
+        layoutManager.setStackFromEnd(true);
+        recyclerView.setLayoutManager(layoutManager);
         recyclerView.setAdapter(chatAdapter);
+        recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
+                super.onScrolled(recyclerView, dx, dy);
+                if (isGenerating && dy < 0) {
+                    shouldAutoScrollDuringGeneration = false;
+                }
+                updateScrollToBottomVisibility();
+            }
+        });
     }
 
-    // -----------------------------------------------------------------
-    // Model management
-    // -----------------------------------------------------------------
+    private void setupSessionsPager() {
+        sessionsPagerAdapter = new ChatSessionsPagerAdapter(sessions);
+        sessionsPager.setAdapter(sessionsPagerAdapter);
+        sessionsPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
+            @Override
+            public void onPageSelected(int position) {
+                if (position >= 0 && position < sessions.size()) {
+                    switchToSession(position);
+                }
+            }
+        });
+    }
 
     private void checkAndLoadModel() {
         if (modelManager.isReady()) {
@@ -167,13 +212,17 @@ public class MainActivity extends AppCompatActivity {
         } else {
             showStatus(getString(R.string.bundled_model_missing));
             addAssistantMessage(getString(R.string.bundled_model_missing_chat));
-            setSendEnabled(false);
+            setInputEnabled(false);
+            modelReady = false;
+            updateSendEnabledForInput();
         }
     }
 
     private void loadModelAsync() {
         showStatus(getString(R.string.loading_model));
-        setSendEnabled(false);
+        setInputEnabled(false);
+        modelReady = false;
+        updateSendEnabledForInput();
 
         bgExecutor.execute(() -> {
             try {
@@ -183,122 +232,172 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     smolLM = inference;
                     hideStatus();
-                    setSendEnabled(true);
+                    modelReady = true;
+                    setInputEnabled(true);
+                    updateSendEnabledForInput();
                     addAssistantMessage(getString(R.string.model_ready));
+                    refreshSessionControls();
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     showStatus(getString(R.string.load_error, e.getMessage()));
                     addAssistantMessage(getString(R.string.error_prefix, e.getMessage()));
+                    modelReady = false;
+                    setInputEnabled(false);
+                    updateSendEnabledForInput();
                 });
             }
         });
     }
 
-    // -----------------------------------------------------------------
-    // Chat
-    // -----------------------------------------------------------------
+    private void onSendOrStopClicked() {
+        if (isGenerating) {
+            if (smolLM != null) smolLM.requestStop();
+            return;
+        }
+        onSendClicked();
+    }
 
     private void onSendClicked() {
+        ChatSession session = getCurrentSession();
+        if (session == null) return;
+
         String text = inputField.getText().toString().trim();
         if (text.isEmpty() || smolLM == null) return;
 
-        if (shouldResetConversationContext(text)) {
+        if (shouldResetConversationContext(session.conversationHistory, text)) {
             Log.d(TAG, "Resetting model conversation context for detected topic switch");
-            conversationHistory.clear();
+            session.conversationHistory.clear();
         }
 
-        ArsDecision arsDecision = resolveAmbiguityAndSpecifier(text);
+        ArsDecision arsDecision = resolveAmbiguityAndSpecifier(session.conversationHistory, text);
         inputField.setText("");
 
         Message userMsg = new Message(Message.ROLE_USER, text);
         addMessage(userMsg);
-        conversationHistory.add(userMsg);
-        if (arsDecision.clarifyingQuestion != null) {
-            Message clarification = new Message(Message.ROLE_ASSISTANT, arsDecision.clarifyingQuestion);
-            addMessage(clarification);
-            conversationHistory.add(clarification);
-            return;
-        }
+        session.conversationHistory.add(userMsg);
         if (!arsDecision.modelText.equals(text)) {
-            Log.d(TAG, "ARS specifier applied: " + arsDecision.modelText);
+            Log.d(TAG, "ARS specifier applied with confidence: " + arsDecision.confidence);
         }
-        setSendEnabled(false);
 
-        // Placeholder response message updated token-by-token
         Message aiMsg = new Message(Message.ROLE_ASSISTANT, "");
         addMessage(aiMsg);
-        List<Message> history = new ArrayList<>(conversationHistory);
+        List<Message> history = new ArrayList<>(session.conversationHistory);
         if (!arsDecision.modelText.equals(text)) {
             history.set(history.size() - 1, new Message(Message.ROLE_USER, arsDecision.modelText));
         }
 
+        isGenerating = true;
+        shouldAutoScrollDuringGeneration = true;
+        updateSendEnabledForInput();
+        refreshSessionControls();
+
         bgExecutor.execute(() ->
-            smolLM.generate(history, new SmolLMInference.StreamCallback() {
-                @Override
-                public void onToken(String piece) {
-                    runOnUiThread(() -> {
-                        aiMsg.setContent(aiMsg.getContent() + piece);
-                        int pos = messages.indexOf(aiMsg);
-                        if (pos >= 0) chatAdapter.notifyItemChanged(pos);
-                        scrollToBottom();
-                    });
-                }
-
-                @Override
-                public void onComplete(String fullResponse) {
-                    runOnUiThread(() -> {
-                        if (!fullResponse.equals(aiMsg.getContent())) {
-                            aiMsg.setContent(fullResponse);
-                            int pos = messages.indexOf(aiMsg);
+                smolLM.generate(history, new SmolLMInference.StreamCallback() {
+                    @Override
+                    public void onToken(String piece) {
+                        runOnUiThread(() -> {
+                            aiMsg.setContent(aiMsg.getContent() + piece);
+                            int pos = getCurrentMessages().indexOf(aiMsg);
                             if (pos >= 0) chatAdapter.notifyItemChanged(pos);
-                        }
-                        if (conversationHistory.isEmpty()
-                                || conversationHistory.get(conversationHistory.size() - 1).isUser()) {
-                            conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
-                        }
-                        setSendEnabled(true);
-                        scrollToBottom();
-                    });
-                }
+                            if (isGenerating && shouldAutoScrollDuringGeneration) {
+                                scrollToBottomImmediate();
+                            }
+                        });
+                    }
 
-                @Override
-                public void onError(Exception e) {
-                    runOnUiThread(() -> {
-                        aiMsg.setContent(getString(R.string.error_prefix, e.getMessage()));
-                        int pos = messages.indexOf(aiMsg);
-                        if (pos >= 0) chatAdapter.notifyItemChanged(pos);
-                        setSendEnabled(true);
-                        scrollToBottom();
-                    });
-                }
-            })
+                    @Override
+                    public void onComplete(String fullResponse) {
+                        runOnUiThread(() -> {
+                            if (!fullResponse.equals(aiMsg.getContent())) {
+                                aiMsg.setContent(fullResponse);
+                                int pos = getCurrentMessages().indexOf(aiMsg);
+                                if (pos >= 0) chatAdapter.notifyItemChanged(pos);
+                            }
+                            ChatSession current = getCurrentSession();
+                            if (current != null && (current.conversationHistory.isEmpty()
+                                    || current.conversationHistory.get(current.conversationHistory.size() - 1).isUser())) {
+                                current.conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
+                            }
+                            isGenerating = false;
+                            updateSendEnabledForInput();
+                            updateScrollToBottomVisibility();
+                            refreshSessionControls();
+                        });
+                    }
+
+                    @Override
+                    public void onError(Exception e) {
+                        runOnUiThread(() -> {
+                            aiMsg.setContent(getString(R.string.error_prefix, e.getMessage()));
+                            int pos = getCurrentMessages().indexOf(aiMsg);
+                            if (pos >= 0) chatAdapter.notifyItemChanged(pos);
+                            isGenerating = false;
+                            updateSendEnabledForInput();
+                            updateScrollToBottomVisibility();
+                            refreshSessionControls();
+                        });
+                    }
+                })
         );
     }
 
-    // -----------------------------------------------------------------
-    // UI helpers
-    // -----------------------------------------------------------------
-
     private void addMessage(Message msg) {
-        messages.add(msg);
-        chatAdapter.notifyItemInserted(messages.size() - 1);
-        scrollToBottom();
+        List<Message> currentMessages = getCurrentMessages();
+        currentMessages.add(msg);
+        chatAdapter.notifyItemInserted(currentMessages.size() - 1);
+        if (isGenerating && shouldAutoScrollDuringGeneration) {
+            scrollToBottomImmediate();
+        } else {
+            updateScrollToBottomVisibility();
+        }
     }
 
     private void addAssistantMessage(String text) {
         addMessage(new Message(Message.ROLE_ASSISTANT, text));
     }
 
-    private void scrollToBottom() {
-        if (!messages.isEmpty()) {
-            recyclerView.scrollToPosition(messages.size() - 1);
+    private void setInputEnabled(boolean enabled) {
+        inputField.setEnabled(enabled);
+    }
+
+    private void setSendButtonState(boolean enabled, boolean generating) {
+        sendButton.setEnabled(enabled);
+        if (generating) {
+            sendButton.setText(getString(R.string.stop_square));
+            sendButton.setContentDescription(getString(R.string.stop));
+        } else {
+            sendButton.setText(getString(R.string.send_arrow));
+            sendButton.setContentDescription(getString(R.string.send));
         }
     }
 
-    private void setSendEnabled(boolean enabled) {
-        sendButton.setEnabled(enabled);
-        inputField.setEnabled(enabled);
+    private void updateSendEnabledForInput() {
+        boolean hasText = !inputField.getText().toString().trim().isEmpty();
+        boolean enabled = isGenerating || (modelReady && inputField.isEnabled() && hasText);
+        setSendButtonState(enabled, isGenerating);
+    }
+
+    private void scrollToBottomImmediate() {
+        List<Message> currentMessages = getCurrentMessages();
+        if (!currentMessages.isEmpty()) {
+            recyclerView.scrollToPosition(currentMessages.size() - 1);
+        }
+        updateScrollToBottomVisibility();
+    }
+
+    private boolean isRecyclerAtBottom() {
+        if (chatAdapter.getItemCount() == 0) return true;
+        int lastVisible = layoutManager.findLastCompletelyVisibleItemPosition();
+        return lastVisible >= chatAdapter.getItemCount() - 1;
+    }
+
+    private void updateScrollToBottomVisibility() {
+        if (isGenerating) {
+            scrollToBottomButton.setVisibility(View.GONE);
+            return;
+        }
+        scrollToBottomButton.setVisibility(isRecyclerAtBottom() ? View.GONE : View.VISIBLE);
     }
 
     private void showStatus(String text) {
@@ -310,8 +409,49 @@ public class MainActivity extends AppCompatActivity {
         tvStatus.setVisibility(View.GONE);
     }
 
-    private boolean shouldResetConversationContext(String newUserText) {
-        Message lastUserMessage = findLastUserMessage();
+    private void onCreateNewSession() {
+        if (isGenerating) return;
+        createAndSwitchToNewSession();
+        inputField.requestFocus();
+    }
+
+    private void createAndSwitchToNewSession() {
+        sessions.add(new ChatSession());
+        sessionsPagerAdapter.notifyItemInserted(sessions.size() - 1);
+        switchToSession(sessions.size() - 1);
+        sessionsPager.setCurrentItem(sessions.size() - 1, true);
+    }
+
+    private void switchToSession(int index) {
+        currentSessionIndex = index;
+        chatAdapter.setMessages(getCurrentMessages());
+        scrollToBottomImmediate();
+        refreshSessionControls();
+    }
+
+    private void refreshSessionControls() {
+        ChatSession session = getCurrentSession();
+        boolean hasSessionContent = session != null
+                && (!session.messages.isEmpty() || !session.conversationHistory.isEmpty());
+        newSessionTopButton.setVisibility(hasSessionContent ? View.VISIBLE : View.GONE);
+        sessionsPager.setVisibility(sessions.size() > 1 ? View.VISIBLE : View.GONE);
+        sessionsPager.setUserInputEnabled(!isGenerating);
+        updateScrollToBottomVisibility();
+    }
+
+    private ChatSession getCurrentSession() {
+        if (currentSessionIndex < 0 || currentSessionIndex >= sessions.size()) return null;
+        return sessions.get(currentSessionIndex);
+    }
+
+    private List<Message> getCurrentMessages() {
+        ChatSession session = getCurrentSession();
+        if (session == null) return new ArrayList<>();
+        return session.messages;
+    }
+
+    private boolean shouldResetConversationContext(List<Message> conversationHistory, String newUserText) {
+        Message lastUserMessage = findLastUserMessage(conversationHistory);
         if (lastUserMessage == null) return false;
 
         if (!isDefinitionStyleQuestion(lastUserMessage.getContent())
@@ -333,7 +473,7 @@ public class MainActivity extends AppCompatActivity {
         return overlapRatio < TOPIC_TOKEN_OVERLAP_THRESHOLD;
     }
 
-    private Message findLastUserMessage() {
+    private Message findLastUserMessage(List<Message> conversationHistory) {
         for (int i = conversationHistory.size() - 1; i >= 0; i--) {
             Message message = conversationHistory.get(i);
             if (message.isUser()) {
@@ -367,33 +507,29 @@ public class MainActivity extends AppCompatActivity {
         return tokens;
     }
 
-    private ArsDecision resolveAmbiguityAndSpecifier(String userText) {
+    private ArsDecision resolveAmbiguityAndSpecifier(List<Message> conversationHistory, String userText) {
         String subject = extractDefinitionSubject(userText);
         if (subject == null) {
             if (!containsAmbiguousReference(userText)) {
-                // No ARS disambiguation needed for this input.
-                return new ArsDecision(userText, null, ARS_RESOLUTION_CONFIDENCE_NOT_APPLICABLE);
+                return new ArsDecision(userText, ARS_RESOLUTION_CONFIDENCE_NOT_APPLICABLE);
             }
-            SubjectResolution resolution = resolveMostRecentConcreteSubject();
-            if (resolution == null || resolution.confidence < ARS_RESOLUTION_CONFIDENCE_THRESHOLD) {
-                return new ArsDecision(userText, getString(R.string.ars_clarify_ambiguous_reference),
-                        resolution == null ? ARS_RESOLUTION_CONFIDENCE_NONE : resolution.confidence);
+            SubjectResolution resolution = resolveMostRecentConcreteSubject(conversationHistory);
+            if (resolution == null) {
+                return new ArsDecision(userText, ARS_RESOLUTION_CONFIDENCE_NONE);
             }
             String rewritten = rewriteAmbiguousFollowUp(userText, sanitizeResolvedSubject(resolution.subject));
-            return new ArsDecision(rewritten, null, resolution.confidence);
+            return new ArsDecision(rewritten, resolution.confidence);
         }
         if (!AMBIGUOUS_REFERENCES.contains(subject)) {
-            return new ArsDecision(userText, null, ARS_RESOLUTION_CONFIDENCE_NOT_APPLICABLE);
+            return new ArsDecision(userText, ARS_RESOLUTION_CONFIDENCE_NOT_APPLICABLE);
         }
 
-        SubjectResolution resolution = resolveMostRecentConcreteSubject();
-        if (resolution == null || resolution.confidence < ARS_RESOLUTION_CONFIDENCE_THRESHOLD) {
-            return new ArsDecision(userText, getString(R.string.ars_clarify_ambiguous_reference),
-                    resolution == null ? ARS_RESOLUTION_CONFIDENCE_NONE : resolution.confidence);
+        SubjectResolution resolution = resolveMostRecentConcreteSubject(conversationHistory);
+        if (resolution == null) {
+            return new ArsDecision(userText, ARS_RESOLUTION_CONFIDENCE_NONE);
         }
         return new ArsDecision(
                 rewriteDefinitionSubject(userText, sanitizeResolvedSubject(resolution.subject)),
-                null,
                 resolution.confidence);
     }
 
@@ -428,28 +564,29 @@ public class MainActivity extends AppCompatActivity {
         return "what is " + subject + "?";
     }
 
-    private SubjectResolution resolveMostRecentConcreteSubject() {
+    private SubjectResolution resolveMostRecentConcreteSubject(List<Message> conversationHistory) {
         String mostRecentSubject = null;
         Set<String> uniqueSubjects = new HashSet<>();
+        int concreteSubjectsSeen = 0;
+        int turnsSinceMostRecentSubject = 0;
         for (int i = conversationHistory.size() - 1; i >= 0; i--) {
             Message message = conversationHistory.get(i);
             if (!message.isUser()) continue;
             String subject = extractDefinitionSubject(message.getContent());
             if (subject == null || AMBIGUOUS_REFERENCES.contains(subject)) continue;
+            concreteSubjectsSeen++;
             if (mostRecentSubject == null) {
                 mostRecentSubject = subject;
+                turnsSinceMostRecentSubject = concreteSubjectsSeen - 1;
             }
             uniqueSubjects.add(subject);
         }
         if (mostRecentSubject == null) return null;
-        // uniqueSubjects cannot be empty here because we always add the same concrete
-        // subject that initializes mostRecentSubject in the loop above.
-        // Two-level confidence scoring: one consistent recent concrete subject is highly
-        // reliable, while multiple distinct recent subjects mean the anaphora target is
-        // likely unclear.
-        float confidence = uniqueSubjects.size() == 1
+        float baseConfidence = uniqueSubjects.size() == 1
                 ? ARS_RESOLUTION_CONFIDENCE_SINGLE_SUBJECT
                 : ARS_RESOLUTION_CONFIDENCE_MULTI_SUBJECT;
+        float recencyPenalty = Math.min(0.3f, turnsSinceMostRecentSubject * ARS_RECENCY_PENALTY_PER_TURN);
+        float confidence = Math.max(ARS_MIN_CONFIDENCE, baseConfidence - recencyPenalty);
         return new SubjectResolution(mostRecentSubject, confidence);
     }
 
@@ -466,8 +603,6 @@ public class MainActivity extends AppCompatActivity {
         if (lower.contains("what about")) {
             return "tell me more about " + subject;
         }
-        // Last-resort fallback for non-definition ambiguous follow-ups; this favors
-        // preserving user wording with explicit context over more invasive rephrasing.
         return originalText + " (about " + subject + ")";
     }
 
@@ -481,12 +616,10 @@ public class MainActivity extends AppCompatActivity {
     /** Result of ARS preprocessing before model generation. */
     private static class ArsDecision {
         final String modelText;
-        final String clarifyingQuestion;
         final float confidence;
 
-        ArsDecision(String modelText, String clarifyingQuestion, float confidence) {
+        ArsDecision(String modelText, float confidence) {
             this.modelText = modelText;
-            this.clarifyingQuestion = clarifyingQuestion;
             this.confidence = confidence;
         }
     }

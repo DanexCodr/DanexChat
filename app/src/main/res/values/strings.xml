@@ -1,18 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DanexChat</string>
-    <string name="powered_by">Powered by SmolLM2 · On-device AI</string>
-    <string name="input_hint">Message SmolLM…</string>
+    <string name="powered_by">DanexChat · Built on SmolLM2 · On-device AI</string>
+    <string name="input_hint">Message DanexChat…</string>
     <string name="send">Send</string>
     <string name="send_arrow">➤</string>
-    <string name="loading_model">Loading SmolLM2 model…</string>
-    <string name="model_ready">👋 Hi! I\'m SmolLM2, your on-device AI assistant. How can I help you today?</string>
+    <string name="stop">Stop</string>
+    <string name="stop_square">■</string>
+    <string name="loading_model">Loading DanexChat model…</string>
+    <string name="model_ready">👋 Hi! I\'m DanexChat, built on SmolLM2 by Hugging Face. I was created by DanexCodr (Danison Nuñez). How can I help you today?</string>
     <string name="bundled_model_missing">Bundled model files are missing from this build.</string>
     <string name="bundled_model_missing_chat">⚠ Bundled model files are missing. Please reinstall a build that includes model_q4.onnx and tokenizer.json in assets/smollm2.</string>
     <string name="load_error">Failed to load model: %1$s</string>
     <string name="load_error_toast">Could not load AI model</string>
     <string name="generation_error">⚠ An error occurred during generation.</string>
     <string name="error_prefix">⚠ Error: %1$s</string>
-    <string name="ars_clarify_reference">Could you clarify what you want me to define?</string>
-    <string name="ars_clarify_ambiguous_reference">I’m not fully sure what you’re referring to. Could you clarify the subject?</string>
+    <string name="ars_clarify_reference">Proceeding with best match context.</string>
+    <string name="ars_clarify_ambiguous_reference">Proceeding with best match context.</string>
+    <string name="new_session">New session</string>
+    <string name="plus_symbol">+</string>
+    <string name="down_symbol">⌄</string>
+    <string name="scroll_to_bottom">Scroll to bottom</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_tab_general">General</string>
+    <string name="settings_tab_session">Session</string>
+    <string name="settings_general_title">General settings</string>
+    <string name="settings_general_app_identity">DanexChat is your assistant app, built on SmolLM2 and optimized for on-device chat.</string>
+    <string name="settings_general_theme">Theme follows your system mode automatically (light/dark).</string>
+    <string name="settings_general_generation">Send turns into a stop control while generation is running.</string>
+    <string name="settings_session_title">Session settings</string>
+    <string name="settings_session_swipe">Swipe horizontally across the session pager to navigate chat sessions.</string>
+    <string name="settings_session_autoscroll">Auto-scroll only follows new tokens during active generation.</string>
+    <string name="settings_session_stop">Use stop to interrupt the current response at any time.</string>
+    <string name="session_label">Session %1$d</string>
 </resources>

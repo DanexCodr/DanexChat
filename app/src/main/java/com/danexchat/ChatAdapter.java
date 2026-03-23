@@ -20,10 +20,15 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.MessageViewHol
     private static final int VIEW_TYPE_USER      = 0;
     private static final int VIEW_TYPE_ASSISTANT = 1;
 
-    private final List<Message> messages;
+    private List<Message> messages;
 
     public ChatAdapter(List<Message> messages) {
         this.messages = messages;
+    }
+
+    public void setMessages(List<Message> messages) {
+        this.messages = messages;
+        notifyDataSetChanged();
     }
 
     @Override
