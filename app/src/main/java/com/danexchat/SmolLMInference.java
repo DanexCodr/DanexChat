@@ -18,6 +18,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
 /**
@@ -61,6 +62,7 @@ public class SmolLMInference {
     private final List<String> presValNames = new ArrayList<>();
     private boolean hasKVCache = false;
     private boolean requiresPositionIds = false;
+    private final AtomicBoolean stopRequested = new AtomicBoolean(false);
 
     // -----------------------------------------------------------------
     // Constructor
@@ -114,15 +116,16 @@ public class SmolLMInference {
         void onError(Exception e);
     }
 
-    /** Build the SmolLM2-Instruct chat prompt (ChatML format). */
+    /** Build a ChatML-format DanexChat prompt from conversation history. */
     public String buildPrompt(List<Message> history) {
         StringBuilder sb = new StringBuilder();
         sb.append("<|im_start|>system\n")
-          .append("You are SmolLM, a helpful AI assistant trained by Hugging Face.\n")
+          .append("You are DanexChat, a helpful AI assistant app built on SmolLM2 from Hugging Face.\n")
+          .append("You were created by DanexCodr (Danison Nuñez).\n")
           .append("Always answer the user's latest message directly.\n")
           .append("Use earlier messages only when they are relevant to the current request.\n")
           .append("If the user switches topics, switch context immediately and do not continue the old topic.\n")
-          .append("If a request is ambiguous, ask a short clarifying question before assuming details.\n")
+          .append("If a request is ambiguous, pick the best-supported interpretation and continue directly.\n")
           .append("Keep answers clear, factual, and concise.\n")
           .append("<|im_end|>\n");
         for (Message msg : history) {
@@ -139,6 +142,7 @@ public class SmolLMInference {
      * Must be called on a background thread.
      */
     public synchronized void generate(List<Message> history, StreamCallback callback) {
+        stopRequested.set(false);
         try {
             generateInternal(history, callback);
         } catch (Exception firstError) {
@@ -214,6 +218,7 @@ public class SmolLMInference {
         String streamedText = "";
 
         for (int step = 0; step < MAX_NEW_TOKENS; step++) {
+            if (stopRequested.get()) break;
             int seqLen   = currentIds.length;
             int totalLen = pastLen + seqLen;
             long[] attnMask = new long[totalLen];
@@ -317,6 +322,7 @@ public class SmolLMInference {
         String streamedText = "";
 
         for (int step = 0; step < MAX_NEW_TOKENS; step++) {
+            if (stopRequested.get()) break;
             long[] ids  = toLongArray(allIds);
             long[] mask = new long[ids.length];
             Arrays.fill(mask, 1L);
@@ -470,6 +476,10 @@ public class SmolLMInference {
     public void close() {
         try { session.close(); } catch (OrtException e) { Log.e(TAG, "close session", e); }
         env.close();
+    }
+
+    public void requestStop() {
+        stopRequested.set(true);
     }
 
     // -----------------------------------------------------------------

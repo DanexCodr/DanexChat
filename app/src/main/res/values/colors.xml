@@ -8,6 +8,7 @@
     <!-- UI colours -->
     <color name="background">#F5F5F5</color>
     <color name="inputBackground">#FFFFFF</color>
+    <color name="inputFieldBackground">#F0F0F0</color>
     <color name="statusBackground">#FFF3E0</color>
 
     <!-- Text colours -->

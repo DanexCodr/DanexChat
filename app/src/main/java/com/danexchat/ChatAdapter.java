@@ -6,6 +6,7 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.List;
@@ -20,10 +21,40 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.MessageViewHol
     private static final int VIEW_TYPE_USER      = 0;
     private static final int VIEW_TYPE_ASSISTANT = 1;
 
-    private final List<Message> messages;
+    private List<Message> messages;
 
     public ChatAdapter(List<Message> messages) {
         this.messages = messages;
+    }
+
+    public void setMessages(List<Message> messages) {
+        List<Message> oldMessages = this.messages;
+        DiffUtil.DiffResult diffResult = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+            @Override
+            public int getOldListSize() {
+                return oldMessages.size();
+            }
+
+            @Override
+            public int getNewListSize() {
+                return messages.size();
+            }
+
+            @Override
+            public boolean areItemsTheSame(int oldItemPosition, int newItemPosition) {
+                return oldMessages.get(oldItemPosition) == messages.get(newItemPosition);
+            }
+
+            @Override
+            public boolean areContentsTheSame(int oldItemPosition, int newItemPosition) {
+                Message oldMessage = oldMessages.get(oldItemPosition);
+                Message newMessage = messages.get(newItemPosition);
+                return oldMessage.getRole() == newMessage.getRole()
+                        && oldMessage.getContent().equals(newMessage.getContent());
+            }
+        });
+        this.messages = messages;
+        diffResult.dispatchUpdatesTo(this);
     }
 
     @Override
