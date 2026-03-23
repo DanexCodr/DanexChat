@@ -41,12 +41,17 @@ import java.util.regex.Pattern;
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
     private static final int DEFAULT_TOOLBAR_HEIGHT_DP = 56;
+    // Definition-style turns are treated as a topic switch when token overlap drops below
+    // this Jaccard threshold, which resets model-side context for cleaner answers.
     private static final float TOPIC_TOKEN_OVERLAP_THRESHOLD = 0.2f;
     private static final float ARS_RESOLUTION_CONFIDENCE_NONE = 0f;
     private static final float ARS_RESOLUTION_CONFIDENCE_NOT_APPLICABLE = 1f;
     private static final float ARS_RESOLUTION_CONFIDENCE_SINGLE_SUBJECT = 0.95f;
     private static final float ARS_RESOLUTION_CONFIDENCE_MULTI_SUBJECT = 0.55f;
+    // Recency-aware confidence tuning: older concrete subjects receive a small penalty
+    // so recent context wins while preserving a non-zero confidence floor.
     private static final float ARS_RECENCY_PENALTY_PER_TURN = 0.05f;
+    private static final float ARS_MAX_RECENCY_PENALTY = 0.3f;
     private static final float ARS_MIN_CONFIDENCE = 0.35f;
     private static final int MIN_TOPIC_TOKEN_LENGTH = 3;
     private static final Pattern TOPIC_TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{L}\\p{N}]+");
@@ -183,8 +188,8 @@ public class MainActivity extends AppCompatActivity {
         recyclerView.setAdapter(chatAdapter);
         recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
-            public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
-                super.onScrolled(recyclerView, dx, dy);
+            public void onScrolled(RecyclerView rv, int dx, int dy) {
+                super.onScrolled(rv, dx, dy);
                 if (isGenerating && dy < 0) {
                     shouldAutoScrollDuringGeneration = false;
                 }
@@ -259,30 +264,31 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void onSendClicked() {
-        ChatSession session = getCurrentSession();
-        if (session == null) return;
+        ChatSession currentSession = getCurrentSession();
+        if (currentSession == null) return;
 
         String text = inputField.getText().toString().trim();
         if (text.isEmpty() || smolLM == null) return;
 
-        if (shouldResetConversationContext(session.conversationHistory, text)) {
+        if (shouldResetConversationContext(currentSession.conversationHistory, text)) {
             Log.d(TAG, "Resetting model conversation context for detected topic switch");
-            session.conversationHistory.clear();
+            currentSession.conversationHistory.clear();
         }
 
-        ArsDecision arsDecision = resolveAmbiguityAndSpecifier(session.conversationHistory, text);
+        ArsDecision arsDecision = resolveAmbiguityAndSpecifier(currentSession.conversationHistory, text);
         inputField.setText("");
 
         Message userMsg = new Message(Message.ROLE_USER, text);
         addMessage(userMsg);
-        session.conversationHistory.add(userMsg);
+        currentSession.conversationHistory.add(userMsg);
         if (!arsDecision.modelText.equals(text)) {
-            Log.d(TAG, "ARS specifier applied with confidence: " + arsDecision.confidence);
+            Log.d(TAG, "ARS specifier applied (confidence=" + arsDecision.confidence
+                    + "): '" + text + "' -> '" + arsDecision.modelText + "'");
         }
 
         Message aiMsg = new Message(Message.ROLE_ASSISTANT, "");
         addMessage(aiMsg);
-        List<Message> history = new ArrayList<>(session.conversationHistory);
+        List<Message> history = new ArrayList<>(currentSession.conversationHistory);
         if (!arsDecision.modelText.equals(text)) {
             history.set(history.size() - 1, new Message(Message.ROLE_USER, arsDecision.modelText));
         }
@@ -568,7 +574,7 @@ public class MainActivity extends AppCompatActivity {
         String mostRecentSubject = null;
         Set<String> uniqueSubjects = new HashSet<>();
         int concreteSubjectsSeen = 0;
-        int turnsSinceMostRecentSubject = 0;
+        int subjectRecencyOffset = 0;
         for (int i = conversationHistory.size() - 1; i >= 0; i--) {
             Message message = conversationHistory.get(i);
             if (!message.isUser()) continue;
@@ -577,15 +583,18 @@ public class MainActivity extends AppCompatActivity {
             concreteSubjectsSeen++;
             if (mostRecentSubject == null) {
                 mostRecentSubject = subject;
-                turnsSinceMostRecentSubject = concreteSubjectsSeen - 1;
+                subjectRecencyOffset = concreteSubjectsSeen - 1;
             }
             uniqueSubjects.add(subject);
         }
         if (mostRecentSubject == null) return null;
+        // Two-level base confidence: one consistent concrete subject is highly reliable,
+        // while multiple distinct candidates lower confidence before recency adjustment.
         float baseConfidence = uniqueSubjects.size() == 1
                 ? ARS_RESOLUTION_CONFIDENCE_SINGLE_SUBJECT
                 : ARS_RESOLUTION_CONFIDENCE_MULTI_SUBJECT;
-        float recencyPenalty = Math.min(0.3f, turnsSinceMostRecentSubject * ARS_RECENCY_PENALTY_PER_TURN);
+        float recencyPenalty = Math.min(ARS_MAX_RECENCY_PENALTY,
+                subjectRecencyOffset * ARS_RECENCY_PENALTY_PER_TURN);
         float confidence = Math.max(ARS_MIN_CONFIDENCE, baseConfidence - recencyPenalty);
         return new SubjectResolution(mostRecentSubject, confidence);
     }

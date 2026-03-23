@@ -116,7 +116,7 @@ public class SmolLMInference {
         void onError(Exception e);
     }
 
-    /** Build the DanexChat chat prompt (ChatML format). */
+    /** Build a ChatML-format DanexChat prompt from conversation history. */
     public String buildPrompt(List<Message> history) {
         StringBuilder sb = new StringBuilder();
         sb.append("<|im_start|>system\n")
