@@ -8,25 +8,45 @@ An Android chat application powered by **SmolLM2-135M-Instruct** running entirel
 - 🤖 **SmolLM2-135M-Instruct** — a compact, capable language model by HuggingFace
 - ⚡ Quantized (Q4) ONNX model for fast on-device inference
 - 🔐 100% on-device — no data leaves your phone
+- 🧠 Single-conversation flow with lightweight ambiguity/topic handling
+- ⚙️ Runtime generation controls (temperature, top-p, max new tokens)
 - 📱 Supports **Android 11–15** (API 30–35)
 
 ## Architecture
 
 ```
 app/
-├── SmolLMInference.java   – ONNX Runtime inference engine with KV-cache
-├── BPETokenizer.java      – Byte-level BPE tokenizer (loads tokenizer.json)
-├── ModelManager.java      – Prepares bundled model files in app storage
-├── ChatAdapter.java       – RecyclerView chat bubble adapter
-├── MainActivity.java      – Chat UI and streaming responses
-└── Message.java           – Chat message data class
+├── MainActivity.java         – Single chat UI, streaming flow, context heuristics
+├── SmolLMInference.java      – ONNX Runtime inference engine + decoding + KV-cache path
+├── BPETokenizer.java         – Byte-level BPE tokenizer (loads tokenizer.json)
+├── ModelManager.java         – Ensures bundled model/tokenizer are available in app storage
+├── ChatAdapter.java          – RecyclerView chat bubble adapter
+├── SettingsActivity.java     – Hosts general inference settings
+├── GeneralSettingsFragment.java – Temperature/top-p/max token controls
+├── SettingsPreferences.java  – SharedPreferences-backed generation config
+└── Message.java              – Chat message data class
 ```
 
-## How It Works
+### Current AI architecture (runtime flow)
 
-1. **Startup**: the app prepares bundled `model_q4.onnx` and `tokenizer.json` files from `assets/smollm2/` into the app's internal storage.
-2. **Model load**: ONNX Runtime initialises the session (uses NNAPI acceleration where available).
-3. **Chat**: each user message is tokenised with the SmolLM2 ChatML template, run through the ONNX model with greedy decoding, and streamed token-by-token to the UI.
+1. **Startup + asset readiness**
+   - `MainActivity` calls `ModelManager.isReady()` on a background executor.
+   - `ModelManager` verifies `assets/smollm2/model_q4.onnx` and `tokenizer.json` are copied to internal storage and pass minimum size checks.
+
+2. **Inference engine initialization**
+   - `SmolLMInference` creates one ONNX Runtime session and tokenizer instance.
+   - It discovers whether the model export includes KV-cache tensors and whether `position_ids` are required.
+   - Generation options are loaded from app settings and can be adjusted live.
+
+3. **Prompt construction + generation**
+   - Chat messages are transformed into a ChatML-style prompt with a fixed DanexChat system instruction.
+   - During generation, decoding applies repetition controls and sampling (`temperature`, `top-p`) and streams token pieces back to UI incrementally.
+   - A fallback path retries with `position_ids` if the runtime reports missing input.
+
+4. **Conversation management**
+   - The app uses a single in-memory conversation history.
+   - Lightweight heuristics detect topic shifts for definition-style prompts and reset model-side context when overlap is very low.
+   - Ambiguous references (e.g., "it", "this") are rewritten toward the latest concrete subject where possible.
 
 ### Model details
 
@@ -75,6 +95,11 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 | Material Components | 1.12.0 | UI widgets |
 | ConstraintLayout | 2.2.0 | Layouts |
 | RecyclerView | 1.3.2 | Chat message list |
+
+## Additional documentation
+
+- [`suggestions/model-inference.md`](suggestions/model-inference.md) — practical roadmap for improving factuality, coherence, and logic in generation.
+- [`Limitations.md`](Limitations.md) — detailed statement of current architectural/behavioral limits.
 
 ## License
 
