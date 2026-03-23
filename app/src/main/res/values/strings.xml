@@ -7,8 +7,8 @@
     <string name="send_arrow">➤</string>
     <string name="stop">Stop</string>
     <string name="stop_square">■</string>
-    <string name="loading_model">Loading DanexChat model…</string>
-    <string name="model_ready">👋 Hi! I\'m DanexChat, built on SmolLM2 by Hugging Face. I was created by DanexCodr (Danison Nuñez). How can I help you today?</string>
+    <string name="loading_model">Loading model…</string>
+    <string name="model_ready">👋 Hi! How can I help you today?</string>
     <string name="bundled_model_missing">Bundled model files are missing from this build.</string>
     <string name="bundled_model_missing_chat">⚠ Bundled model files are missing. Please reinstall a build that includes model_q4.onnx and tokenizer.json in assets/smollm2.</string>
     <string name="load_error">Failed to load model: %1$s</string>
@@ -25,12 +25,19 @@
     <string name="settings_tab_general">General</string>
     <string name="settings_tab_session">Session</string>
     <string name="settings_general_title">General settings</string>
-    <string name="settings_general_app_identity">DanexChat is your assistant app, built on SmolLM2 and optimized for on-device chat.</string>
+    <string name="settings_temperature">Temperature</string>
+    <string name="settings_temperature_value">Temperature: %1$.1f</string>
+    <string name="settings_top_p">Top-p</string>
+    <string name="settings_top_p_value">Top-p: %1$.1f</string>
+    <string name="settings_max_tokens">Max new tokens</string>
+    <string name="settings_max_tokens_value">Max new tokens: %1$d</string>
     <string name="settings_general_theme">Theme follows your system mode automatically (light/dark).</string>
-    <string name="settings_general_generation">Send turns into a stop control while generation is running.</string>
+    <string name="settings_general_generation">Adjust generation behavior in real time. Lower temperature/top-p is more deterministic; higher values are more creative.</string>
     <string name="settings_session_title">Session settings</string>
     <string name="settings_session_swipe">Swipe horizontally across the session pager to navigate chat sessions.</string>
+    <string name="settings_session_swipe_toggle">Enable session swipe navigation</string>
     <string name="settings_session_autoscroll">Auto-scroll only follows new tokens during active generation.</string>
+    <string name="settings_session_autoscroll_toggle">Enable auto-scroll during generation</string>
     <string name="settings_session_stop">Use stop to interrupt the current response at any time.</string>
     <string name="session_label">Session %1$d</string>
 </resources>
