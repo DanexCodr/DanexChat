@@ -152,9 +152,9 @@ public class SmolLMInference {
            .append("Always answer the user's latest message directly.\n")
            .append("Use earlier messages only when they are relevant to the current request.\n")
            .append("If the user switches topics, switch context immediately and do not continue the old topic.\n")
-            .append("If a request is ambiguous, pick the best-supported interpretation and continue directly.\n")
-            .append("Keep answers clear, factual, and concise.\n")
-            .append("<|im_end|>\n");
+           .append("If a request is ambiguous, pick the best-supported interpretation and continue directly.\n")
+           .append("Keep answers clear, factual, and concise.\n")
+           .append("<|im_end|>\n");
         if (archivedSummary != null && !archivedSummary.trim().isEmpty()) {
             sb.append("<|im_start|>system\n")
               .append("Archived conversation summary: ")

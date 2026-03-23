@@ -50,8 +50,10 @@ public class MainActivity extends AppCompatActivity {
     private static final int RECENT_CONTEXT_TOKEN_BUDGET = 1500;
     private static final int SUMMARY_TOKEN_BUDGET = 300;
     private static final int ARCHIVE_TOKEN_BUDGET = 220;
+    private static final int ARCHIVE_CONDENSED_BUDGET = ARCHIVE_TOKEN_BUDGET / 2;
     private static final int SUMMARY_BATCH_SIZE = 8;
     private static final int KEEP_RECENT_MESSAGES = 6;
+    private static final int MESSAGE_OVERHEAD_TOKENS = 4;
     private static final int SUMMARY_SNIPPET_MAX_CHARS = 140;
     private static final Set<String> AMBIGUOUS_REFERENCES = new HashSet<>(Arrays.asList(
             "it", "this", "that", "they", "them", "he", "she", "him", "her", "these", "those"
@@ -533,7 +535,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private static String mergeHighLevelSummary(String existingArchive, String summaryToArchive) {
-        String condensed = shrinkToTokenBudget(summaryToArchive, ARCHIVE_TOKEN_BUDGET / 2);
+        String condensed = shrinkToTokenBudget(summaryToArchive, ARCHIVE_CONDENSED_BUDGET);
         if (condensed.isEmpty()) return existingArchive;
         StringBuilder merged = new StringBuilder();
         if (!existingArchive.isEmpty()) {
@@ -546,7 +548,7 @@ public class MainActivity extends AppCompatActivity {
     private static int estimateMessageTokenCount(List<Message> history) {
         int count = 0;
         for (Message message : history) {
-            count += estimateTextTokens(message.getContent()) + 4;
+            count += estimateTextTokens(message.getContent()) + MESSAGE_OVERHEAD_TOKENS;
         }
         return count;
     }
@@ -554,7 +556,7 @@ public class MainActivity extends AppCompatActivity {
     private static int estimateTextTokens(String text) {
         String normalized = normalizeWhitespace(text);
         if (normalized.isEmpty()) return 0;
-        int words = normalized.split(" ").length;
+        int words = countWords(normalized);
         int chars = normalized.length();
         int charEstimate = Math.max(1, chars / 4);
         return Math.max(words, charEstimate);
@@ -564,21 +566,44 @@ public class MainActivity extends AppCompatActivity {
         String normalized = normalizeWhitespace(text);
         if (normalized.isEmpty()) return "";
         if (estimateTextTokens(normalized) <= tokenBudget) return normalized;
-        String[] words = normalized.split(" ");
-        int approxWordBudget = Math.max(1, tokenBudget);
-        int start = Math.max(0, words.length - approxWordBudget);
-        StringBuilder sb = new StringBuilder();
-        if (start > 0) sb.append("... ");
-        for (int i = start; i < words.length; i++) {
-            if (sb.length() > 0) sb.append(' ');
-            sb.append(words[i]);
-        }
-        return sb.toString().trim();
+        int wordBudget = Math.max(1, tokenBudget);
+        String tail = tailWords(normalized, wordBudget);
+        if (tail.equals(normalized)) return tail;
+        return ("... " + tail).trim();
     }
 
     private static String normalizeWhitespace(String text) {
         if (text == null) return "";
         return WHITESPACE_PATTERN.matcher(text).replaceAll(" ").trim();
+    }
+
+    private static int countWords(String normalized) {
+        if (normalized.isEmpty()) return 0;
+        int count = 1;
+        for (int i = 0; i < normalized.length(); i++) {
+            if (normalized.charAt(i) == ' ') {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static String tailWords(String normalized, int wordCount) {
+        int spacesSeen = 0;
+        int startIndex = 0;
+        for (int i = normalized.length() - 1; i >= 0; i--) {
+            if (normalized.charAt(i) == ' ') {
+                spacesSeen++;
+                if (spacesSeen == wordCount) {
+                    startIndex = i + 1;
+                    break;
+                }
+            }
+        }
+        if (spacesSeen < wordCount) {
+            return normalized;
+        }
+        return normalized.substring(startIndex).trim();
     }
 
 }
