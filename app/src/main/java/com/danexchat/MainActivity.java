@@ -1,6 +1,7 @@
 package com.danexchat;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -16,9 +17,14 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Pattern;
 
 /**
  * Main chat activity for DanexChat.
@@ -28,7 +34,21 @@ import java.util.concurrent.Executors;
  * for fully on-device chat.
  */
 public class MainActivity extends AppCompatActivity {
+    private static final String TAG = "MainActivity";
     private static final int DEFAULT_TOOLBAR_HEIGHT_DP = 56;
+    // Topic overlap is computed with Jaccard similarity; below this value we treat
+    // consecutive definition-style prompts as a topic switch and reset model context.
+    // Lower values make resets more aggressive, while higher values preserve context
+    // unless prompts are clearly different. 0.2 keeps mildly related follow-ups.
+    private static final float TOPIC_TOKEN_OVERLAP_THRESHOLD = 0.2f;
+    private static final int MIN_TOPIC_TOKEN_LENGTH = 3;
+    private static final Pattern TOPIC_TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{L}\\p{N}]+");
+    private static final Set<String> TOPIC_STOPWORDS = new HashSet<>(Arrays.asList(
+            "a", "an", "the", "is", "are", "was", "were", "am", "be", "to", "of", "for", "in",
+            "on", "at", "and", "or", "but", "with", "about", "this", "that", "it", "its", "as",
+            "what", "who", "when", "where", "why", "how", "tell", "me", "please",
+            "do", "does", "can", "will", "would"
+    ));
 
     private RecyclerView  recyclerView;
     private ChatAdapter   chatAdapter;
@@ -174,6 +194,11 @@ public class MainActivity extends AppCompatActivity {
         String text = inputField.getText().toString().trim();
         if (text.isEmpty() || smolLM == null) return;
 
+        if (shouldResetConversationContext(text)) {
+            Log.d(TAG, "Resetting model conversation context for detected topic switch");
+            conversationHistory.clear();
+        }
+
         inputField.setText("");
         setSendEnabled(false);
 
@@ -261,5 +286,62 @@ public class MainActivity extends AppCompatActivity {
 
     private void hideStatus() {
         tvStatus.setVisibility(View.GONE);
+    }
+
+    private boolean shouldResetConversationContext(String newUserText) {
+        Message lastUserMessage = findLastUserMessage();
+        if (lastUserMessage == null) return false;
+
+        if (!isDefinitionStyleQuestion(lastUserMessage.getContent())
+                || !isDefinitionStyleQuestion(newUserText)) {
+            return false;
+        }
+
+        Set<String> previousTopicTokens = extractTopicTokens(lastUserMessage.getContent());
+        Set<String> newTopicTokens = extractTopicTokens(newUserText);
+        if (previousTopicTokens.isEmpty() || newTopicTokens.isEmpty()) {
+            return false;
+        }
+
+        Set<String> overlap = new HashSet<>(previousTopicTokens);
+        overlap.retainAll(newTopicTokens);
+        Set<String> union = new HashSet<>(previousTopicTokens);
+        union.addAll(newTopicTokens);
+        float overlapRatio = (float) overlap.size() / union.size();
+        return overlapRatio < TOPIC_TOKEN_OVERLAP_THRESHOLD;
+    }
+
+    private Message findLastUserMessage() {
+        for (int i = conversationHistory.size() - 1; i >= 0; i--) {
+            Message message = conversationHistory.get(i);
+            if (message.isUser()) {
+                return message;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isDefinitionStyleQuestion(String text) {
+        String normalized = text.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) return false;
+        if (normalized.endsWith("?")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+        }
+        return normalized.startsWith("what is ")
+                || normalized.startsWith("what are ")
+                || normalized.startsWith("who is ")
+                || normalized.startsWith("who are ")
+                || normalized.startsWith("define ")
+                || normalized.startsWith("tell me about ");
+    }
+
+    private static Set<String> extractTopicTokens(String text) {
+        Set<String> tokens = new HashSet<>();
+        String[] parts = TOPIC_TOKEN_SPLIT_PATTERN.split(text.toLowerCase(Locale.ROOT));
+        for (String part : parts) {
+            if (part.length() < MIN_TOPIC_TOKEN_LENGTH || TOPIC_STOPWORDS.contains(part)) continue;
+            tokens.add(part);
+        }
+        return tokens;
     }
 }
