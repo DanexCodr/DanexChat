@@ -39,6 +39,14 @@ public class SmolLMInference {
     private static final String TAG = "SmolLMInference";
     private static final Pattern MISSING_POSITION_IDS_PATTERN =
             Pattern.compile("\\bmissing input:\\s*position_ids\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern THIRD_PARTY_IDENTITY_PATTERN = Pattern.compile(
+            "(?i)\\b(?:i am|i'm|i’m|as)\\b[^.\\n]*(?:chatgpt|openai|claude|anthropic|gemini|google ai|meta ai|llama)[^.\\n]*");
+    private static final Pattern CREATOR_CLAIM_PATTERN = Pattern.compile(
+            "(?i)\\b(?:i\\s+(?:was\\s+)?(?:created|developed|built|made)\\s+by|my\\s+(?:creator|developer)\\s+is)\\b[^.\\n]*");
+    private static final Pattern SELF_IDENTITY_REFERENCE_PATTERN = Pattern.compile(
+            "(?i)\\b(?:i am|i'm|i’m|as an ai|as a language model|my creator|created by|developed by|built by|made by)\\b");
+    private static final String CANONICAL_IDENTITY_SENTENCE =
+            "I am DanexChat, based on SmolLM, created by DanexCodr (Danison Nuñez).";
 
     // SmolLM2-135M architecture
     private static final int NUM_LAYERS   = 30;
@@ -148,7 +156,8 @@ public class SmolLMInference {
     public String buildPrompt(List<Message> history, String summary, String archivedSummary) {
         StringBuilder sb = new StringBuilder();
         sb.append("<|im_start|>system\n")
-           .append("You are DanexChat, an on-device AI assistant created by DanexCodr.\n")
+           .append("You are DanexChat, an on-device AI assistant based on SmolLM, created by DanexCodr (Danison Nuñez).\n")
+           .append("Never claim to be any other assistant or to be created by anyone else.\n")
            .append("Always answer the user's latest message directly.\n")
            .append("Use earlier messages only when they are relevant to the current request.\n")
            .append("If the user switches topics, switch context immediately and do not continue the old topic.\n")
@@ -320,7 +329,7 @@ public class SmolLMInference {
             currentIds = new long[]{nextToken};
         }
 
-        cb.onComplete(out.toString());
+        cb.onComplete(enforceAssistantIdentity(out.toString()));
     }
 
     private StepResult runKVStep(long[] inputIds, long[] attnMask,
@@ -440,12 +449,38 @@ public class SmolLMInference {
             }
         }
 
-        cb.onComplete(out.toString());
+        cb.onComplete(enforceAssistantIdentity(out.toString()));
     }
 
     // -----------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------
+
+    private static String enforceAssistantIdentity(String response) {
+        if (response == null || response.isEmpty()) return response;
+
+        String normalized = response.trim();
+        boolean touched = false;
+
+        if (THIRD_PARTY_IDENTITY_PATTERN.matcher(normalized).find()) {
+            normalized = THIRD_PARTY_IDENTITY_PATTERN.matcher(normalized)
+                    .replaceAll(CANONICAL_IDENTITY_SENTENCE);
+            touched = true;
+        }
+        if (CREATOR_CLAIM_PATTERN.matcher(normalized).find()) {
+            normalized = CREATOR_CLAIM_PATTERN.matcher(normalized)
+                    .replaceAll("I was created by DanexCodr (Danison Nuñez).");
+            touched = true;
+        }
+
+        boolean identityMentioned = SELF_IDENTITY_REFERENCE_PATTERN.matcher(normalized).find();
+        if ((touched || identityMentioned)
+                && !normalized.toLowerCase().contains("danexchat")
+                && !normalized.toLowerCase().contains("danexcodr")) {
+            normalized = normalized + "\n" + CANONICAL_IDENTITY_SENTENCE;
+        }
+        return normalized;
+    }
 
     /** Flatten a [1, numKvHeads, seqLen, headDim] tensor to a 1-D float array. */
     private static float[] flattenKVTensor(float[][][][] kv, int seqLen) {
