@@ -14,4 +14,5 @@
     <string name="generation_error">⚠ An error occurred during generation.</string>
     <string name="error_prefix">⚠ Error: %1$s</string>
     <string name="ars_clarify_reference">Could you clarify what you want me to define?</string>
+    <string name="ars_clarify_ambiguous_reference">I’m not fully sure what “it/that” refers to. Could you clarify the subject?</string>
 </resources>

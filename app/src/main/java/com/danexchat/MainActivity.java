@@ -41,6 +41,7 @@ public class MainActivity extends AppCompatActivity {
     // Lower values make resets more aggressive, while higher values preserve context
     // unless prompts are clearly different. 0.2 keeps mildly related follow-ups.
     private static final float TOPIC_TOKEN_OVERLAP_THRESHOLD = 0.2f;
+    private static final float ARS_RESOLUTION_CONFIDENCE_THRESHOLD = 0.65f;
     private static final int MIN_TOPIC_TOKEN_LENGTH = 3;
     private static final Pattern TOPIC_TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{L}\\p{N}]+");
     private static final Pattern DEFINITION_ARTICLE_PATTERN = Pattern.compile("^(a|an|the)\\s+");
@@ -364,16 +365,26 @@ public class MainActivity extends AppCompatActivity {
 
     private ArsDecision resolveAmbiguityAndSpecifier(String userText) {
         String subject = extractDefinitionSubject(userText);
-        if (subject == null) return new ArsDecision(userText, null);
+        if (subject == null) {
+            if (!containsAmbiguousReference(userText)) return new ArsDecision(userText, null, 1f);
+            SubjectResolution resolution = resolveMostRecentConcreteSubject();
+            if (resolution == null || resolution.confidence < ARS_RESOLUTION_CONFIDENCE_THRESHOLD) {
+                return new ArsDecision(userText, getString(R.string.ars_clarify_ambiguous_reference),
+                        resolution == null ? 0f : resolution.confidence);
+            }
+            String rewritten = rewriteAmbiguousFollowUp(userText, resolution.subject);
+            return new ArsDecision(rewritten, null, resolution.confidence);
+        }
         if (!AMBIGUOUS_REFERENCES.contains(subject)) {
-            return new ArsDecision(userText, null);
+            return new ArsDecision(userText, null, 1f);
         }
 
-        String resolvedSubject = findMostRecentConcreteSubject();
-        if (resolvedSubject == null) {
-            return new ArsDecision(userText, getString(R.string.ars_clarify_reference));
+        SubjectResolution resolution = resolveMostRecentConcreteSubject();
+        if (resolution == null || resolution.confidence < ARS_RESOLUTION_CONFIDENCE_THRESHOLD) {
+            return new ArsDecision(userText, getString(R.string.ars_clarify_ambiguous_reference),
+                    resolution == null ? 0f : resolution.confidence);
         }
-        return new ArsDecision(rewriteDefinitionSubject(userText, resolvedSubject), null);
+        return new ArsDecision(rewriteDefinitionSubject(userText, resolution.subject), null, resolution.confidence);
     }
 
     private static String extractDefinitionSubject(String text) {
@@ -407,25 +418,60 @@ public class MainActivity extends AppCompatActivity {
         return "what is " + subject + "?";
     }
 
-    private String findMostRecentConcreteSubject() {
+    private SubjectResolution resolveMostRecentConcreteSubject() {
+        String mostRecentSubject = null;
+        Set<String> uniqueSubjects = new HashSet<>();
         for (int i = conversationHistory.size() - 1; i >= 0; i--) {
             Message message = conversationHistory.get(i);
             if (!message.isUser()) continue;
             String subject = extractDefinitionSubject(message.getContent());
             if (subject == null || AMBIGUOUS_REFERENCES.contains(subject)) continue;
-            return subject;
+            if (mostRecentSubject == null) {
+                mostRecentSubject = subject;
+            }
+            uniqueSubjects.add(subject);
         }
-        return null;
+        if (mostRecentSubject == null) return null;
+        float confidence = uniqueSubjects.size() == 1 ? 0.95f : 0.55f;
+        return new SubjectResolution(mostRecentSubject, confidence);
+    }
+
+    private static boolean containsAmbiguousReference(String text) {
+        String[] parts = TOPIC_TOKEN_SPLIT_PATTERN.split(text.toLowerCase(Locale.ROOT));
+        for (String part : parts) {
+            if (AMBIGUOUS_REFERENCES.contains(part)) return true;
+        }
+        return false;
+    }
+
+    private static String rewriteAmbiguousFollowUp(String originalText, String subject) {
+        String lower = originalText.toLowerCase(Locale.ROOT);
+        if (lower.contains("what about")) {
+            return "tell me more about " + subject;
+        }
+        return originalText + " (about " + subject + ")";
     }
 
     /** Result of ARS preprocessing before model generation. */
     private static class ArsDecision {
         final String modelText;
         final String clarifyingQuestion;
+        final float confidence;
 
-        ArsDecision(String modelText, String clarifyingQuestion) {
+        ArsDecision(String modelText, String clarifyingQuestion, float confidence) {
             this.modelText = modelText;
             this.clarifyingQuestion = clarifyingQuestion;
+            this.confidence = confidence;
+        }
+    }
+
+    private static class SubjectResolution {
+        final String subject;
+        final float confidence;
+
+        SubjectResolution(String subject, float confidence) {
+            this.subject = subject;
+            this.confidence = confidence;
         }
     }
 }
