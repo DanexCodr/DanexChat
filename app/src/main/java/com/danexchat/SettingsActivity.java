@@ -4,10 +4,7 @@ import android.os.Bundle;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
-import androidx.viewpager2.widget.ViewPager2;
-
-import com.google.android.material.tabs.TabLayout;
-import com.google.android.material.tabs.TabLayoutMediator;
+import androidx.fragment.app.FragmentTransaction;
 
 public class SettingsActivity extends AppCompatActivity {
 
@@ -23,13 +20,10 @@ public class SettingsActivity extends AppCompatActivity {
             getSupportActionBar().setDisplayShowHomeEnabled(true);
         }
         toolbar.setNavigationOnClickListener(v -> onBackPressed());
-
-        TabLayout tabLayout = findViewById(R.id.tabLayoutSettings);
-        ViewPager2 viewPager = findViewById(R.id.viewPagerSettings);
-        viewPager.setAdapter(new SettingsPagerAdapter(this));
-
-        new TabLayoutMediator(tabLayout, viewPager, (tab, position) ->
-                tab.setText(position == 0 ? R.string.settings_tab_general : R.string.settings_tab_session)
-        ).attach();
+        if (savedInstanceState == null) {
+            FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
+            transaction.replace(R.id.settingsContent, new GeneralSettingsFragment());
+            transaction.commit();
+        }
     }
 }

@@ -10,14 +10,10 @@ final class SettingsPreferences {
     private static final String KEY_TEMPERATURE = "temperature";
     private static final String KEY_TOP_P = "top_p";
     private static final String KEY_MAX_NEW_TOKENS = "max_new_tokens";
-    private static final String KEY_AUTO_SCROLL = "auto_scroll";
-    private static final String KEY_SESSION_SWIPE = "session_swipe";
 
     static final float DEFAULT_TEMPERATURE = 0.8f;
     static final float DEFAULT_TOP_P = 0.9f;
     static final int DEFAULT_MAX_NEW_TOKENS = 256;
-    static final boolean DEFAULT_AUTO_SCROLL = true;
-    static final boolean DEFAULT_SESSION_SWIPE = true;
 
     private SettingsPreferences() {
     }
@@ -48,21 +44,5 @@ final class SettingsPreferences {
 
     static void setMaxNewTokens(Context context, int maxNewTokens) {
         get(context).edit().putInt(KEY_MAX_NEW_TOKENS, maxNewTokens).apply();
-    }
-
-    static boolean isAutoScrollEnabled(Context context) {
-        return get(context).getBoolean(KEY_AUTO_SCROLL, DEFAULT_AUTO_SCROLL);
-    }
-
-    static void setAutoScrollEnabled(Context context, boolean enabled) {
-        get(context).edit().putBoolean(KEY_AUTO_SCROLL, enabled).apply();
-    }
-
-    static boolean isSessionSwipeEnabled(Context context) {
-        return get(context).getBoolean(KEY_SESSION_SWIPE, DEFAULT_SESSION_SWIPE);
-    }
-
-    static void setSessionSwipeEnabled(Context context, boolean enabled) {
-        get(context).edit().putBoolean(KEY_SESSION_SWIPE, enabled).apply();
     }
 }

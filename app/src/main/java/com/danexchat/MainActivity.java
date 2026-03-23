@@ -1,7 +1,6 @@
 package com.danexchat;
 
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -20,7 +19,6 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import androidx.viewpager2.widget.ViewPager2;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -63,25 +61,18 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayoutManager layoutManager;
     private EditText inputField;
     private Button sendButton;
-    private Button scrollToBottomButton;
-    private Button newSessionTopButton;
     private ImageButton settingsButton;
-    private ViewPager2 sessionsPager;
-    private ChatSessionsPagerAdapter sessionsPagerAdapter;
 
     private TextView tvStatus;
     private View inputRow;
-
-    private final List<ChatSession> sessions = new ArrayList<>();
-    private int currentSessionIndex = -1;
+    private final List<Message> messages = new ArrayList<>();
+    private final List<Message> conversationHistory = new ArrayList<>();
 
     private ModelManager modelManager;
     private SmolLMInference smolLM;
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
-    private SharedPreferences settingsPrefs;
 
     private volatile boolean isGenerating = false;
-    private volatile boolean shouldAutoScrollDuringGeneration = true;
     private boolean modelReady = false;
 
     @Override
@@ -91,11 +82,8 @@ public class MainActivity extends AppCompatActivity {
 
         bindViews();
         setupRecyclerView();
-        setupSessionsPager();
-        createAndSwitchToNewSession();
 
         modelManager = new ModelManager(this);
-        settingsPrefs = SettingsPreferences.get(this);
         checkAndLoadModel();
     }
 
@@ -110,7 +98,6 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         applyGenerationOptionsFromSettings();
-        refreshSessionControls();
     }
 
     private void bindViews() {
@@ -122,10 +109,7 @@ public class MainActivity extends AppCompatActivity {
         sendButton = findViewById(R.id.btnSend);
         tvStatus = findViewById(R.id.tvStatus);
         inputRow = findViewById(R.id.inputRow);
-        scrollToBottomButton = findViewById(R.id.btnScrollToBottom);
-        newSessionTopButton = findViewById(R.id.btnNewSessionTop);
         settingsButton = findViewById(R.id.btnSettings);
-        sessionsPager = findViewById(R.id.viewPagerSessions);
 
         View rootLayout = findViewById(R.id.rootLayout);
         final int toolbarPaddingLeft = toolbar.getPaddingLeft();
@@ -171,66 +155,36 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void afterTextChanged(Editable s) {}
         });
-        scrollToBottomButton.setOnClickListener(v -> {
-            smoothScrollToLatestMessage();
-            shouldAutoScrollDuringGeneration = true;
-            updateScrollToBottomVisibility();
-        });
-        newSessionTopButton.setOnClickListener(v -> onCreateNewSession());
         settingsButton.setOnClickListener(v ->
                 startActivity(new Intent(MainActivity.this, SettingsActivity.class)));
     }
 
     private void setupRecyclerView() {
-        chatAdapter = new ChatAdapter(new ArrayList<>());
+        chatAdapter = new ChatAdapter(messages);
         layoutManager = new LinearLayoutManager(this);
         layoutManager.setStackFromEnd(true);
         recyclerView.setLayoutManager(layoutManager);
         recyclerView.setAdapter(chatAdapter);
-        recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrolled(RecyclerView rv, int dx, int dy) {
-                super.onScrolled(rv, dx, dy);
-                if (isGenerating && dy < 0) {
-                    shouldAutoScrollDuringGeneration = false;
-                }
-                updateScrollToBottomVisibility();
-            }
-        });
-    }
-
-    private void setupSessionsPager() {
-        sessionsPagerAdapter = new ChatSessionsPagerAdapter(sessions);
-        sessionsPager.setAdapter(sessionsPagerAdapter);
-        sessionsPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
-            @Override
-            public void onPageSelected(int position) {
-                if (position >= 0 && position < sessions.size()) {
-                    switchToSession(position);
-                }
-            }
-        });
     }
 
     private void checkAndLoadModel() {
-        if (modelManager.isReady()) {
-            loadModelAsync();
-        } else {
-            showStatus(getString(R.string.bundled_model_missing));
-            addAssistantMessage(getString(R.string.bundled_model_missing_chat));
-            setInputEnabled(false);
-            modelReady = false;
-            updateSendEnabledForInput();
-        }
-    }
-
-    private void loadModelAsync() {
         showStatus(getString(R.string.loading_model));
         setInputEnabled(false);
         modelReady = false;
         updateSendEnabledForInput();
 
         bgExecutor.execute(() -> {
+            if (!modelManager.isReady()) {
+                runOnUiThread(() -> {
+                    showStatus(getString(R.string.bundled_model_missing));
+                    addAssistantMessage(getString(R.string.bundled_model_missing_chat));
+                    setInputEnabled(false);
+                    modelReady = false;
+                    updateSendEnabledForInput();
+                });
+                return;
+            }
+
             try {
                 SmolLMInference inference = new SmolLMInference(
                         modelManager.getModelFile(),
@@ -247,7 +201,6 @@ public class MainActivity extends AppCompatActivity {
                     setInputEnabled(true);
                     updateSendEnabledForInput();
                     addAssistantMessage(getString(R.string.model_ready));
-                    refreshSessionControls();
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
@@ -270,39 +223,34 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void onSendClicked() {
-        ChatSession currentSession = getCurrentSession();
-        if (currentSession == null) return;
-
         String text = inputField.getText().toString().trim();
         if (text.isEmpty() || smolLM == null) return;
         applyGenerationOptionsFromSettings();
 
-        if (shouldResetConversationContext(currentSession.conversationHistory, text)) {
+        if (shouldResetConversationContext(conversationHistory, text)) {
             Log.d(TAG, "Resetting model conversation context for detected topic switch");
-            currentSession.conversationHistory.clear();
+            conversationHistory.clear();
         }
 
-        String modelText = resolveAmbiguityAndSpecifier(currentSession.conversationHistory, text);
+        String modelText = resolveAmbiguityAndSpecifier(conversationHistory, text);
         inputField.setText("");
 
         Message userMsg = new Message(Message.ROLE_USER, text);
         addMessage(userMsg);
-        currentSession.conversationHistory.add(userMsg);
+        conversationHistory.add(userMsg);
         if (!modelText.equals(text)) {
             Log.d(TAG, "Ambiguity resolved: '" + text + "' -> '" + modelText + "'");
         }
 
         Message aiMsg = new Message(Message.ROLE_ASSISTANT, "");
         addMessage(aiMsg);
-        List<Message> history = new ArrayList<>(currentSession.conversationHistory);
+        List<Message> history = new ArrayList<>(conversationHistory);
         if (!modelText.equals(text)) {
             history.set(history.size() - 1, new Message(Message.ROLE_USER, modelText));
         }
 
         isGenerating = true;
-        shouldAutoScrollDuringGeneration = SettingsPreferences.isAutoScrollEnabled(this);
         updateSendEnabledForInput();
-        refreshSessionControls();
 
         bgExecutor.execute(() ->
                 smolLM.generate(history, new SmolLMInference.StreamCallback() {
@@ -310,11 +258,8 @@ public class MainActivity extends AppCompatActivity {
                     public void onToken(String piece) {
                         runOnUiThread(() -> {
                             aiMsg.setContent(aiMsg.getContent() + piece);
-                            int pos = getCurrentMessages().indexOf(aiMsg);
+                            int pos = messages.indexOf(aiMsg);
                             if (pos >= 0) chatAdapter.notifyItemChanged(pos);
-                            if (isGenerating && shouldAutoScrollDuringGeneration) {
-                                smoothScrollToLatestMessage();
-                            }
                         });
                     }
 
@@ -323,18 +268,15 @@ public class MainActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             if (!fullResponse.equals(aiMsg.getContent())) {
                                 aiMsg.setContent(fullResponse);
-                                int pos = getCurrentMessages().indexOf(aiMsg);
+                                int pos = messages.indexOf(aiMsg);
                                 if (pos >= 0) chatAdapter.notifyItemChanged(pos);
                             }
-                            ChatSession current = getCurrentSession();
-                            if (current != null && (current.conversationHistory.isEmpty()
-                                    || current.conversationHistory.get(current.conversationHistory.size() - 1).isUser())) {
-                                current.conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
+                            if (conversationHistory.isEmpty()
+                                    || conversationHistory.get(conversationHistory.size() - 1).isUser()) {
+                                conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
                             }
                             isGenerating = false;
                             updateSendEnabledForInput();
-                            updateScrollToBottomVisibility();
-                            refreshSessionControls();
                         });
                     }
 
@@ -342,12 +284,10 @@ public class MainActivity extends AppCompatActivity {
                     public void onError(Exception e) {
                         runOnUiThread(() -> {
                             aiMsg.setContent(getString(R.string.error_prefix, e.getMessage()));
-                            int pos = getCurrentMessages().indexOf(aiMsg);
+                            int pos = messages.indexOf(aiMsg);
                             if (pos >= 0) chatAdapter.notifyItemChanged(pos);
                             isGenerating = false;
                             updateSendEnabledForInput();
-                            updateScrollToBottomVisibility();
-                            refreshSessionControls();
                         });
                     }
                 })
@@ -355,14 +295,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void addMessage(Message msg) {
-        List<Message> currentMessages = getCurrentMessages();
-        currentMessages.add(msg);
-        chatAdapter.notifyItemInserted(currentMessages.size() - 1);
-        if (isGenerating && shouldAutoScrollDuringGeneration) {
-            smoothScrollToLatestMessage();
-        } else {
-            updateScrollToBottomVisibility();
-        }
+        messages.add(msg);
+        chatAdapter.notifyItemInserted(messages.size() - 1);
     }
 
     private void addAssistantMessage(String text) {
@@ -390,28 +324,6 @@ public class MainActivity extends AppCompatActivity {
         setSendButtonState(enabled, isGenerating);
     }
 
-    private void smoothScrollToLatestMessage() {
-        List<Message> currentMessages = getCurrentMessages();
-        if (!currentMessages.isEmpty()) {
-            layoutManager.smoothScrollToPosition(recyclerView, null, currentMessages.size() - 1);
-        }
-        updateScrollToBottomVisibility();
-    }
-
-    private boolean isRecyclerAtBottom() {
-        if (chatAdapter.getItemCount() == 0) return true;
-        int lastVisible = layoutManager.findLastCompletelyVisibleItemPosition();
-        return lastVisible >= chatAdapter.getItemCount() - 1;
-    }
-
-    private void updateScrollToBottomVisibility() {
-        if (isGenerating) {
-            scrollToBottomButton.setVisibility(View.GONE);
-            return;
-        }
-        scrollToBottomButton.setVisibility(isRecyclerAtBottom() ? View.GONE : View.VISIBLE);
-    }
-
     private void showStatus(String text) {
         tvStatus.setText(text);
         tvStatus.setVisibility(View.VISIBLE);
@@ -421,37 +333,6 @@ public class MainActivity extends AppCompatActivity {
         tvStatus.setVisibility(View.GONE);
     }
 
-    private void onCreateNewSession() {
-        if (isGenerating) return;
-        createAndSwitchToNewSession();
-        inputField.requestFocus();
-    }
-
-    private void createAndSwitchToNewSession() {
-        sessions.add(new ChatSession());
-        sessionsPagerAdapter.notifyItemInserted(sessions.size() - 1);
-        switchToSession(sessions.size() - 1);
-        sessionsPager.setCurrentItem(sessions.size() - 1, true);
-    }
-
-    private void switchToSession(int index) {
-        currentSessionIndex = index;
-        chatAdapter.setMessages(getCurrentMessages());
-        smoothScrollToLatestMessage();
-        refreshSessionControls();
-    }
-
-    private void refreshSessionControls() {
-        ChatSession session = getCurrentSession();
-        boolean hasSessionContent = session != null
-                && (!session.messages.isEmpty() || !session.conversationHistory.isEmpty());
-        newSessionTopButton.setVisibility(hasSessionContent ? View.VISIBLE : View.GONE);
-        sessionsPager.setVisibility(sessions.size() > 1 ? View.VISIBLE : View.GONE);
-        boolean swipeEnabled = SettingsPreferences.isSessionSwipeEnabled(this);
-        sessionsPager.setUserInputEnabled(!isGenerating && swipeEnabled);
-        updateScrollToBottomVisibility();
-    }
-
     private void applyGenerationOptionsFromSettings() {
         if (smolLM == null) return;
         smolLM.updateGenerationOptions(new SmolLMInference.GenerationOptions(
@@ -459,17 +340,6 @@ public class MainActivity extends AppCompatActivity {
                 SettingsPreferences.getTopP(this),
                 SettingsPreferences.getMaxNewTokens(this)
         ));
-    }
-
-    private ChatSession getCurrentSession() {
-        if (currentSessionIndex < 0 || currentSessionIndex >= sessions.size()) return null;
-        return sessions.get(currentSessionIndex);
-    }
-
-    private List<Message> getCurrentMessages() {
-        ChatSession session = getCurrentSession();
-        if (session == null) return new ArrayList<>();
-        return session.messages;
     }
 
     private boolean shouldResetConversationContext(List<Message> conversationHistory, String newUserText) {
