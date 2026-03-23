@@ -40,11 +40,13 @@ public class SmolLMInference {
     private static final Pattern MISSING_POSITION_IDS_PATTERN =
             Pattern.compile("\\bmissing input:\\s*position_ids\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern THIRD_PARTY_IDENTITY_PATTERN = Pattern.compile(
-            "(?i)\\b(?:i am|i'm|i’m|as)\\b[^.\\n]*(?:chatgpt|openai|claude|anthropic|gemini|google ai|meta ai|llama)[^.\\n]*");
+            "(?i)\\b(?:i am|i'm|as)\\b[^.!?\\n]*(?:chatgpt|openai|claude|anthropic|gemini|google ai|meta ai|llama)[^.!?\\n]*");
     private static final Pattern CREATOR_CLAIM_PATTERN = Pattern.compile(
-            "(?i)\\b(?:i\\s+(?:was\\s+)?(?:created|developed|built|made)\\s+by|my\\s+(?:creator|developer)\\s+is)\\b[^.\\n]*");
+            "(?i)\\b(?:i\\s+(?:was\\s+)?(?:created|developed|built|made)\\s+by|my\\s+(?:creator|developer)\\s+is)\\b[^.!?\\n]*");
+    private static final Pattern SELF_CREATOR_CLAIM_PATTERN = Pattern.compile(
+            "(?i)\\b(?:i\\s+(?:created|developed|built|made)\\s+myself|i\\s+am\\s+my\\s+own\\s+(?:creator|developer)|my\\s+(?:creator|developer)\\s+is\\s+(?:me|myself|danexchat)|i\\s+(?:created|developed|built|made)\\s+danexchat)\\b[^.!?\\n]*");
     private static final Pattern SELF_IDENTITY_REFERENCE_PATTERN = Pattern.compile(
-            "(?i)\\b(?:i am|i'm|i’m|as an ai|as a language model|my creator|created by|developed by|built by|made by)\\b");
+            "(?i)\\b(?:i am|i'm|as an ai|as a language model|my creator|created by|developed by|built by|made by)\\b");
     private static final String CANONICAL_IDENTITY_SENTENCE =
             "I am DanexChat, based on SmolLM, created by DanexCodr (Danison Nuñez).";
 
@@ -459,27 +461,42 @@ public class SmolLMInference {
     private static String enforceAssistantIdentity(String response) {
         if (response == null || response.isEmpty()) return response;
 
-        String normalized = response.trim();
+        String normalized = normalizeApostrophes(response).trim();
         boolean touched = false;
 
-        if (THIRD_PARTY_IDENTITY_PATTERN.matcher(normalized).find()) {
-            normalized = THIRD_PARTY_IDENTITY_PATTERN.matcher(normalized)
+        java.util.regex.Matcher thirdPartyIdentityMatcher =
+                THIRD_PARTY_IDENTITY_PATTERN.matcher(normalized);
+        if (thirdPartyIdentityMatcher.find()) {
+            normalized = thirdPartyIdentityMatcher
                     .replaceAll(CANONICAL_IDENTITY_SENTENCE);
             touched = true;
         }
-        if (CREATOR_CLAIM_PATTERN.matcher(normalized).find()) {
-            normalized = CREATOR_CLAIM_PATTERN.matcher(normalized)
+        java.util.regex.Matcher creatorClaimMatcher = CREATOR_CLAIM_PATTERN.matcher(normalized);
+        if (creatorClaimMatcher.find()) {
+            normalized = creatorClaimMatcher
+                    .replaceAll("I was created by DanexCodr (Danison Nuñez).");
+            touched = true;
+        }
+        java.util.regex.Matcher selfCreatorClaimMatcher =
+                SELF_CREATOR_CLAIM_PATTERN.matcher(normalized);
+        if (selfCreatorClaimMatcher.find()) {
+            normalized = selfCreatorClaimMatcher
                     .replaceAll("I was created by DanexCodr (Danison Nuñez).");
             touched = true;
         }
 
         boolean identityMentioned = SELF_IDENTITY_REFERENCE_PATTERN.matcher(normalized).find();
+        String lowerNormalized = normalized.toLowerCase();
         if ((touched || identityMentioned)
-                && !normalized.toLowerCase().contains("danexchat")
-                && !normalized.toLowerCase().contains("danexcodr")) {
+                && !lowerNormalized.contains("danexchat")
+                && !lowerNormalized.contains("danexcodr")) {
             normalized = normalized + "\n" + CANONICAL_IDENTITY_SENTENCE;
         }
         return normalized;
+    }
+
+    private static String normalizeApostrophes(String value) {
+        return value.replace('\u2019', '\'');
     }
 
     /** Flatten a [1, numKvHeads, seqLen, headDim] tensor to a 1-D float array. */
