@@ -42,8 +42,16 @@ public class BPETokenizer {
     // byte ↔ unicode maps
     private static final char[] BYTE_TO_UNICODE = new char[256];
     private static final Map<Character, Integer> UNICODE_TO_BYTE = new HashMap<>();
+    // GPT-2 byte-level pre-tokenizer pattern:
+    // 1) common contractions ('s, 't, 're, ...)
+    // 2) letter runs, optionally preceded by one space
+    // 3) number runs, optionally preceded by one space
+    // 4) symbol/punctuation runs, optionally preceded by one space
+    // 5) whitespace runs
+    // Default Java regex flags are intentional: \p{} character classes already
+    // use Unicode semantics and match GPT-2 token chunking expectations here.
     private static final Pattern GPT2_PRETOKENIZER_PATTERN = Pattern.compile(
-            "'s|'t|'re|'ve|'m|'ll|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)|\\s+");
+            "['’]s|['’]t|['’]re|['’]ve|['’]m|['’]ll|['’]d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+");
 
     static {
         buildByteMaps();
@@ -306,13 +314,7 @@ public class BPETokenizer {
         List<String> words = new ArrayList<>();
         Matcher matcher = GPT2_PRETOKENIZER_PATTERN.matcher(text);
         while (matcher.find()) {
-            String token = matcher.group();
-            if (token != null && !token.isEmpty()) {
-                words.add(token);
-            }
-        }
-        if (words.isEmpty() && !text.isEmpty()) {
-            words.add(text);
+            words.add(matcher.group());
         }
         return words;
     }
