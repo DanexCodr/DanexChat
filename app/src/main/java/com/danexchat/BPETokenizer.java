@@ -15,6 +15,8 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Byte-level BPE tokenizer for SmolLM2.
@@ -40,6 +42,16 @@ public class BPETokenizer {
     // byte ↔ unicode maps
     private static final char[] BYTE_TO_UNICODE = new char[256];
     private static final Map<Character, Integer> UNICODE_TO_BYTE = new HashMap<>();
+    // GPT-2 byte-level pre-tokenizer pattern:
+    // 1) common contractions ('s, 't, 're, ...)
+    // 2) letter runs, optionally preceded by one space
+    // 3) number runs, optionally preceded by one space
+    // 4) symbol/punctuation runs, optionally preceded by one space
+    // 5) whitespace runs
+    // Default Java regex flags are intentional: \p{} character classes already
+    // use Unicode semantics and match GPT-2 token chunking expectations here.
+    private static final Pattern GPT2_PRETOKENIZER_PATTERN = Pattern.compile(
+            "['’]s|['’]t|['’]re|['’]ve|['’]m|['’]ll|['’]d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+");
 
     static {
         buildByteMaps();
@@ -297,35 +309,12 @@ public class BPETokenizer {
         return ids;
     }
 
-    /**
-     * Split text into words the same way GPT-2's ByteLevel pre-tokenizer does.
-     * Words are separated by spaces; each non-first word gets a leading 'Ġ'.
-     */
+    /** Split text into chunks using a GPT-2 compatible ByteLevel pre-tokenizer regex. */
     private static List<String> splitWords(String text) {
         List<String> words = new ArrayList<>();
-        // Regex: match whitespace-prefixed or leading word chunks
-        int i = 0;
-        boolean firstWord = true;
-        while (i < text.length()) {
-            // Consume leading spaces and attach to the next word
-            int spaceStart = i;
-            while (i < text.length() && text.charAt(i) == ' ') i++;
-            int wordStart = i;
-            while (i < text.length() && text.charAt(i) != ' ') i++;
-            int wordEnd = i;
-
-            if (wordStart < wordEnd) {
-                String word = text.substring(wordStart, wordEnd);
-                if (!firstWord || spaceStart < wordStart) {
-                    // prefix space
-                    word = " " + word;
-                }
-                words.add(word);
-                firstWord = false;
-            }
-        }
-        if (words.isEmpty() && !text.isEmpty()) {
-            words.add(text);
+        Matcher matcher = GPT2_PRETOKENIZER_PATTERN.matcher(text);
+        while (matcher.find()) {
+            words.add(matcher.group());
         }
         return words;
     }
