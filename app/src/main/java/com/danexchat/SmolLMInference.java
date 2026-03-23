@@ -201,6 +201,8 @@ public class SmolLMInference {
 
         // Prefill with the whole prompt
         long[] currentIds = promptIds;
+        List<Long> generatedIds = new ArrayList<>();
+        String streamedText = "";
 
         for (int step = 0; step < MAX_NEW_TOKENS; step++) {
             int seqLen   = currentIds.length;
@@ -220,10 +222,17 @@ public class SmolLMInference {
             if (nextToken == BPETokenizer.TOKEN_IM_END ||
                     nextToken == BPETokenizer.TOKEN_EOS) break;
 
-            String piece = tokenizer.decode(new long[]{nextToken});
+            generatedIds.add(nextToken);
+            String decodedSoFar = tokenizer.decode(generatedIds);
+            // Rare tokenizer boundary fallback: if the incremental prefix check fails,
+            // stream the full decoded segment once to avoid dropping generated text.
+            String piece = decodedSoFar.startsWith(streamedText)
+                    ? decodedSoFar.substring(streamedText.length())
+                    : decodedSoFar;
             if (!piece.isEmpty()) {
                 out.append(piece);
                 cb.onToken(piece);
+                streamedText = decodedSoFar;
             }
 
             // Next step: only feed the generated token
@@ -294,6 +303,8 @@ public class SmolLMInference {
                                     StreamCallback cb) throws OrtException {
         List<Long> allIds = new ArrayList<>();
         for (long id : promptIds) allIds.add(id);
+        List<Long> generatedIds = new ArrayList<>();
+        String streamedText = "";
 
         for (int step = 0; step < MAX_NEW_TOKENS; step++) {
             long[] ids  = toLongArray(allIds);
@@ -327,10 +338,17 @@ public class SmolLMInference {
                     nextToken == BPETokenizer.TOKEN_EOS) break;
 
             allIds.add(nextToken);
-            String piece = tokenizer.decode(new long[]{nextToken});
+            generatedIds.add(nextToken);
+            String decodedSoFar = tokenizer.decode(generatedIds);
+            // Rare tokenizer boundary fallback: if the incremental prefix check fails,
+            // stream the full decoded segment once to avoid dropping generated text.
+            String piece = decodedSoFar.startsWith(streamedText)
+                    ? decodedSoFar.substring(streamedText.length())
+                    : decodedSoFar;
             if (!piece.isEmpty()) {
                 out.append(piece);
                 cb.onToken(piece);
+                streamedText = decodedSoFar;
             }
         }
 

@@ -33,6 +33,7 @@ public class MainActivity extends AppCompatActivity {
     private RecyclerView  recyclerView;
     private ChatAdapter   chatAdapter;
     private List<Message> messages;
+    private List<Message> conversationHistory;
 
     private EditText  inputField;
     private Button    sendButton;
@@ -118,7 +119,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupRecyclerView() {
-        messages    = new ArrayList<>();
+        messages = new ArrayList<>();
+        conversationHistory = new ArrayList<>();
         chatAdapter = new ChatAdapter(messages);
         LinearLayoutManager llm = new LinearLayoutManager(this);
         llm.setStackFromEnd(true);
@@ -175,14 +177,14 @@ public class MainActivity extends AppCompatActivity {
         inputField.setText("");
         setSendEnabled(false);
 
-        addMessage(new Message(Message.ROLE_USER, text));
+        Message userMsg = new Message(Message.ROLE_USER, text);
+        addMessage(userMsg);
+        conversationHistory.add(userMsg);
 
         // Placeholder response message updated token-by-token
         Message aiMsg = new Message(Message.ROLE_ASSISTANT, "");
         addMessage(aiMsg);
-
-        // History snapshot (exclude the empty placeholder)
-        List<Message> history = new ArrayList<>(messages.subList(0, messages.size() - 1));
+        List<Message> history = new ArrayList<>(conversationHistory);
 
         bgExecutor.execute(() ->
             smolLM.generate(history, new SmolLMInference.StreamCallback() {
@@ -199,10 +201,14 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onComplete(String fullResponse) {
                     runOnUiThread(() -> {
-                        if (aiMsg.getContent().isEmpty()) {
+                        if (!fullResponse.equals(aiMsg.getContent())) {
                             aiMsg.setContent(fullResponse);
                             int pos = messages.indexOf(aiMsg);
                             if (pos >= 0) chatAdapter.notifyItemChanged(pos);
+                        }
+                        if (conversationHistory.isEmpty()
+                                || conversationHistory.get(conversationHistory.size() - 1).isUser()) {
+                            conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
                         }
                         setSendEnabled(true);
                         scrollToBottom();
