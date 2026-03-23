@@ -44,9 +44,13 @@ app/
    - A fallback path retries with `position_ids` if the runtime reports missing input.
 
 4. **Conversation management**
-   - The app uses a single in-memory conversation history.
-   - Lightweight heuristics detect topic shifts for definition-style prompts and reset model-side context when overlap is very low.
-   - Ambiguous references (e.g., "it", "this") are rewritten toward the latest concrete subject where possible.
+    - The app uses a single in-memory conversation history.
+   - Long chats are compacted with hierarchical summarization:
+     - recent exchanges are kept in full form,
+     - older turns are compressed into a rolling summary,
+     - older summary slices are condensed into a high-level archived summary.
+    - Lightweight heuristics detect topic shifts for definition-style prompts and reset model-side context when overlap is very low.
+    - Ambiguous references (e.g., "it", "this") are rewritten toward the latest concrete subject where possible.
 
 ### Model details
 

@@ -28,7 +28,8 @@ This document describes what DanexChat **cannot reliably handle yet** in its cur
 
 3. **Context window constraints**
    - The effective prompt is bounded by max context length.
-   - Earlier details may be truncated when conversations get long.
+   - DanexChat now uses hierarchical summarization to keep recent turns intact while compressing older turns into summary layers.
+   - Compression preserves key facts better than raw truncation, but some fine-grained details can still be lost in very long chats.
 
 ## 3) Conversation and memory limitations
 

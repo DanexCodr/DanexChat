@@ -145,16 +145,30 @@ public class SmolLMInference {
     }
 
     /** Build a ChatML-format DanexChat prompt from conversation history. */
-    public String buildPrompt(List<Message> history) {
+    public String buildPrompt(List<Message> history, String summary, String archivedSummary) {
         StringBuilder sb = new StringBuilder();
         sb.append("<|im_start|>system\n")
-          .append("You are DanexChat, an on-device AI assistant created by DanexCodr.\n")
-          .append("Always answer the user's latest message directly.\n")
-          .append("Use earlier messages only when they are relevant to the current request.\n")
-          .append("If the user switches topics, switch context immediately and do not continue the old topic.\n")
-          .append("If a request is ambiguous, pick the best-supported interpretation and continue directly.\n")
-          .append("Keep answers clear, factual, and concise.\n")
-          .append("<|im_end|>\n");
+           .append("You are DanexChat, an on-device AI assistant created by DanexCodr.\n")
+           .append("Always answer the user's latest message directly.\n")
+           .append("Use earlier messages only when they are relevant to the current request.\n")
+           .append("If the user switches topics, switch context immediately and do not continue the old topic.\n")
+           .append("If a request is ambiguous, pick the best-supported interpretation and continue directly.\n")
+           .append("Keep answers clear, factual, and concise.\n")
+           .append("<|im_end|>\n");
+        if (archivedSummary != null && !archivedSummary.trim().isEmpty()) {
+            sb.append("<|im_start|>system\n")
+              .append("Archived conversation summary: ")
+              .append(archivedSummary.trim())
+              .append('\n')
+              .append("<|im_end|>\n");
+        }
+        if (summary != null && !summary.trim().isEmpty()) {
+            sb.append("<|im_start|>system\n")
+              .append("Conversation summary: ")
+              .append(summary.trim())
+              .append('\n')
+              .append("<|im_end|>\n");
+        }
         for (Message msg : history) {
             sb.append(msg.isUser() ? "<|im_start|>user\n" : "<|im_start|>assistant\n")
               .append(msg.getContent()).append('\n')
@@ -169,15 +183,24 @@ public class SmolLMInference {
      * Must be called on a background thread.
      */
     public synchronized void generate(List<Message> history, StreamCallback callback) {
+        generate(history, "", "", callback);
+    }
+
+    public synchronized void generate(
+            List<Message> history,
+            String summary,
+            String archivedSummary,
+            StreamCallback callback
+    ) {
         stopRequested.set(false);
         try {
-            generateInternal(history, callback);
+            generateInternal(history, summary, archivedSummary, callback);
         } catch (Exception firstError) {
             if (!requiresPositionIds && isMissingPositionIdsError(firstError)) {
                 Log.w(TAG, "Retrying generation with position_ids enabled after runtime error", firstError);
                 requiresPositionIds = true;
                 try {
-                    generateInternal(history, callback);
+                    generateInternal(history, summary, archivedSummary, callback);
                     return;
                 } catch (Exception retryError) {
                     Log.e(TAG, "Generation retry failed", retryError);
@@ -196,8 +219,13 @@ public class SmolLMInference {
         }
     }
 
-    private void generateInternal(List<Message> history, StreamCallback callback) throws Exception {
-        String prompt   = buildPrompt(history);
+    private void generateInternal(
+            List<Message> history,
+            String summary,
+            String archivedSummary,
+            StreamCallback callback
+    ) throws Exception {
+        String prompt   = buildPrompt(history, summary, archivedSummary);
         long[] promptIds = tokenizer.encodeWithSpecialTokens(prompt);
 
         // Trim to max context
