@@ -56,6 +56,7 @@ public class SmolLMInference {
     private static final float MAX_TEMPERATURE = 2.0f;
     private static final float MIN_TOP_P = 0.05f;
     private static final float MAX_TOP_P = 1.0f;
+    private static final float FLOAT_EPSILON = 0.001f;
 
     private final OrtEnvironment env;
     private final OrtSession session;
@@ -453,7 +454,8 @@ public class SmolLMInference {
         float[] adjusted = Arrays.copyOf(logits, logits.length);
         applyRepetitionPenalty(adjusted, contextIds);
         applyNoRepeatNgram(adjusted, generatedIds);
-        if (temperature <= MIN_TEMPERATURE + 0.001f || topP <= MIN_TOP_P + 0.001f) {
+        if (temperature <= MIN_TEMPERATURE + FLOAT_EPSILON
+                || topP <= MIN_TOP_P + FLOAT_EPSILON) {
             return argmax(adjusted);
         }
         return sampleTopP(adjusted, temperature, topP);

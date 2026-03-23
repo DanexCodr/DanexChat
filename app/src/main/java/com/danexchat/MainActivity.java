@@ -452,10 +452,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshSessionControls() {
-        newSessionTopButton.setVisibility(View.VISIBLE);
+        ChatSession session = getCurrentSession();
+        boolean hasSessionContent = session != null
+                && (!session.messages.isEmpty() || !session.conversationHistory.isEmpty());
+        newSessionTopButton.setVisibility(hasSessionContent ? View.VISIBLE : View.GONE);
         sessionsPager.setVisibility(sessions.size() > 1 ? View.VISIBLE : View.GONE);
-        boolean swipeEnabled = settingsPrefs == null
-                || SettingsPreferences.isSessionSwipeEnabled(this);
+        boolean swipeEnabled = SettingsPreferences.isSessionSwipeEnabled(this);
         sessionsPager.setUserInputEnabled(!isGenerating && swipeEnabled);
         updateScrollToBottomVisibility();
     }

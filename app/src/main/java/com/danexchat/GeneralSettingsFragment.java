@@ -12,6 +12,7 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 
 public class GeneralSettingsFragment extends Fragment {
+    private static final float TENTHS_MULTIPLIER = 10f;
     private static final int TEMPERATURE_MIN_TENTHS = 1;
     private static final int TOP_P_MIN_TENTHS = 5;
     private static final int MAX_TOKENS_MIN = 32;
@@ -34,8 +35,8 @@ public class GeneralSettingsFragment extends Fragment {
         float currentTopP = SettingsPreferences.getTopP(requireContext());
         int currentMaxTokens = SettingsPreferences.getMaxNewTokens(requireContext());
 
-        int temperatureProgress = Math.round(currentTemperature * 10f) - TEMPERATURE_MIN_TENTHS;
-        int topPProgress = Math.round(currentTopP * 10f) - TOP_P_MIN_TENTHS;
+        int temperatureProgress = Math.round(currentTemperature * TENTHS_MULTIPLIER) - TEMPERATURE_MIN_TENTHS;
+        int topPProgress = Math.round(currentTopP * TENTHS_MULTIPLIER) - TOP_P_MIN_TENTHS;
         int maxTokensProgress = currentMaxTokens - MAX_TOKENS_MIN;
 
         temperatureSeek.setProgress(Math.max(0, temperatureProgress));
@@ -49,7 +50,7 @@ public class GeneralSettingsFragment extends Fragment {
         temperatureSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                float value = (TEMPERATURE_MIN_TENTHS + progress) / 10f;
+                float value = (TEMPERATURE_MIN_TENTHS + progress) / TENTHS_MULTIPLIER;
                 SettingsPreferences.setTemperature(requireContext(), value);
                 updateTemperatureLabel(temperatureLabel, value);
             }
@@ -66,7 +67,7 @@ public class GeneralSettingsFragment extends Fragment {
         topPSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                float value = (TOP_P_MIN_TENTHS + progress) / 10f;
+                float value = (TOP_P_MIN_TENTHS + progress) / TENTHS_MULTIPLIER;
                 SettingsPreferences.setTopP(requireContext(), value);
                 updateTopPLabel(topPLabel, value);
             }
