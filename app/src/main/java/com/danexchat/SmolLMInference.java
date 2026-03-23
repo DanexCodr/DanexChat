@@ -148,6 +148,7 @@ public class SmolLMInference {
     public String buildPrompt(List<Message> history) {
         StringBuilder sb = new StringBuilder();
         sb.append("<|im_start|>system\n")
+          .append("You are DanexChat, an on-device AI assistant created by DanexCodr.\n")
           .append("Always answer the user's latest message directly.\n")
           .append("Use earlier messages only when they are relevant to the current request.\n")
           .append("If the user switches topics, switch context immediately and do not continue the old topic.\n")
