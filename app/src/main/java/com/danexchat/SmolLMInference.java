@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 
 /**
@@ -46,10 +47,15 @@ public class SmolLMInference {
 
     // Generation limits
     private static final int MAX_NEW_TOKENS  = 512;
+    private static final int MIN_NEW_TOKENS  = 32;
     private static final int MAX_CONTEXT_LEN = 2048;
     private static final float REPETITION_PENALTY = 1.15f;
     private static final int REPETITION_WINDOW = 128;
     private static final int NO_REPEAT_NGRAM_SIZE = 3;
+    private static final float MIN_TEMPERATURE = 0.1f;
+    private static final float MAX_TEMPERATURE = 2.0f;
+    private static final float MIN_TOP_P = 0.05f;
+    private static final float MAX_TOP_P = 1.0f;
 
     private final OrtEnvironment env;
     private final OrtSession session;
@@ -63,6 +69,7 @@ public class SmolLMInference {
     private boolean hasKVCache = false;
     private boolean requiresPositionIds = false;
     private final AtomicBoolean stopRequested = new AtomicBoolean(false);
+    private GenerationOptions generationOptions = GenerationOptions.defaults();
 
     // -----------------------------------------------------------------
     // Constructor
@@ -116,12 +123,30 @@ public class SmolLMInference {
         void onError(Exception e);
     }
 
+    static final class GenerationOptions {
+        final float temperature;
+        final float topP;
+        final int maxNewTokens;
+
+        GenerationOptions(float temperature, float topP, int maxNewTokens) {
+            this.temperature = clamp(temperature, MIN_TEMPERATURE, MAX_TEMPERATURE);
+            this.topP = clamp(topP, MIN_TOP_P, MAX_TOP_P);
+            this.maxNewTokens = Math.max(MIN_NEW_TOKENS, Math.min(MAX_NEW_TOKENS, maxNewTokens));
+        }
+
+        static GenerationOptions defaults() {
+            return new GenerationOptions(
+                    SettingsPreferences.DEFAULT_TEMPERATURE,
+                    SettingsPreferences.DEFAULT_TOP_P,
+                    SettingsPreferences.DEFAULT_MAX_NEW_TOKENS
+            );
+        }
+    }
+
     /** Build a ChatML-format DanexChat prompt from conversation history. */
     public String buildPrompt(List<Message> history) {
         StringBuilder sb = new StringBuilder();
         sb.append("<|im_start|>system\n")
-          .append("You are DanexChat, a helpful AI assistant app built on SmolLM2 from Hugging Face.\n")
-          .append("You were created by DanexCodr (Danison Nuñez).\n")
           .append("Always answer the user's latest message directly.\n")
           .append("Use earlier messages only when they are relevant to the current request.\n")
           .append("If the user switches topics, switch context immediately and do not continue the old topic.\n")
@@ -160,6 +185,12 @@ public class SmolLMInference {
             }
             Log.e(TAG, "Generation error", firstError);
             callback.onError(firstError);
+        }
+    }
+
+    public synchronized void updateGenerationOptions(GenerationOptions options) {
+        if (options != null) {
+            generationOptions = options;
         }
     }
 
@@ -217,7 +248,8 @@ public class SmolLMInference {
         List<Long> generatedIds = new ArrayList<>();
         String streamedText = "";
 
-        for (int step = 0; step < MAX_NEW_TOKENS; step++) {
+        GenerationOptions options = generationOptions;
+        for (int step = 0; step < options.maxNewTokens; step++) {
             if (stopRequested.get()) break;
             int seqLen   = currentIds.length;
             int totalLen = pastLen + seqLen;
@@ -233,7 +265,11 @@ public class SmolLMInference {
             pastLen    = totalLen;
 
             long nextToken = selectNextToken(
-                    sr.lastLogits, buildContextIds(promptIds, generatedIds), generatedIds);
+                    sr.lastLogits,
+                    buildContextIds(promptIds, generatedIds),
+                    generatedIds,
+                    options.temperature,
+                    options.topP);
             if (nextToken == BPETokenizer.TOKEN_IM_END ||
                     nextToken == BPETokenizer.TOKEN_EOS) break;
 
@@ -321,7 +357,8 @@ public class SmolLMInference {
         List<Long> generatedIds = new ArrayList<>();
         String streamedText = "";
 
-        for (int step = 0; step < MAX_NEW_TOKENS; step++) {
+        GenerationOptions options = generationOptions;
+        for (int step = 0; step < options.maxNewTokens; step++) {
             if (stopRequested.get()) break;
             long[] ids  = toLongArray(allIds);
             long[] mask = new long[ids.length];
@@ -345,7 +382,12 @@ public class SmolLMInference {
             long nextToken;
             try (OrtSession.Result ort = session.run(inputs)) {
                 float[][][] logits = (float[][][]) ort.get("logits").get().getValue();
-                nextToken = selectNextToken(logits[0][ids.length - 1], ids, generatedIds);
+                nextToken = selectNextToken(
+                        logits[0][ids.length - 1],
+                        ids,
+                        generatedIds,
+                        options.temperature,
+                        options.topP);
             } finally {
                 for (OnnxTensor t : inputs.values()) t.close();
             }
@@ -401,11 +443,89 @@ public class SmolLMInference {
         return best;
     }
 
-    private static long selectNextToken(float[] logits, long[] contextIds, List<Long> generatedIds) {
+    private static long selectNextToken(
+            float[] logits,
+            long[] contextIds,
+            List<Long> generatedIds,
+            float temperature,
+            float topP
+    ) {
         float[] adjusted = Arrays.copyOf(logits, logits.length);
         applyRepetitionPenalty(adjusted, contextIds);
         applyNoRepeatNgram(adjusted, generatedIds);
-        return argmax(adjusted);
+        if (temperature <= MIN_TEMPERATURE + 0.001f || topP <= MIN_TOP_P + 0.001f) {
+            return argmax(adjusted);
+        }
+        return sampleTopP(adjusted, temperature, topP);
+    }
+
+    private static long sampleTopP(float[] logits, float temperature, float topP) {
+        double maxLogit = Double.NEGATIVE_INFINITY;
+        for (float logit : logits) {
+            if (logit > maxLogit) maxLogit = logit;
+        }
+
+        double[] probabilities = new double[logits.length];
+        double sum = 0d;
+        for (int i = 0; i < logits.length; i++) {
+            float logit = logits[i];
+            if (!Float.isFinite(logit)) {
+                probabilities[i] = 0d;
+                continue;
+            }
+            double scaled = (logit - maxLogit) / temperature;
+            double value = Math.exp(scaled);
+            probabilities[i] = value;
+            sum += value;
+        }
+        if (!(sum > 0d)) {
+            return argmax(logits);
+        }
+        for (int i = 0; i < probabilities.length; i++) {
+            probabilities[i] /= sum;
+        }
+
+        List<Integer> sorted = new ArrayList<>(probabilities.length);
+        for (int i = 0; i < probabilities.length; i++) {
+            sorted.add(i);
+        }
+        sorted.sort((a, b) -> Double.compare(probabilities[b], probabilities[a]));
+
+        double cumulative = 0d;
+        int cutoff = sorted.size();
+        for (int i = 0; i < sorted.size(); i++) {
+            cumulative += probabilities[sorted.get(i)];
+            if (cumulative >= topP) {
+                cutoff = i + 1;
+                break;
+            }
+        }
+
+        if (cutoff <= 0) {
+            return sorted.get(0);
+        }
+        double sample = ThreadLocalRandom.current().nextDouble();
+        double running = 0d;
+        double topPSum = 0d;
+        for (int i = 0; i < cutoff; i++) {
+            topPSum += probabilities[sorted.get(i)];
+        }
+        if (!(topPSum > 0d)) {
+            return sorted.get(0);
+        }
+
+        for (int i = 0; i < cutoff; i++) {
+            int token = sorted.get(i);
+            running += probabilities[token] / topPSum;
+            if (sample <= running) {
+                return token;
+            }
+        }
+        return sorted.get(cutoff - 1);
+    }
+
+    private static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private static void applyRepetitionPenalty(float[] logits, long[] contextIds) {

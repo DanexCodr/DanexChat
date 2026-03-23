@@ -1,6 +1,7 @@
 package com.danexchat;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -86,6 +87,7 @@ public class MainActivity extends AppCompatActivity {
     private ModelManager modelManager;
     private SmolLMInference smolLM;
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
+    private SharedPreferences settingsPrefs;
 
     private volatile boolean isGenerating = false;
     private volatile boolean shouldAutoScrollDuringGeneration = true;
@@ -102,6 +104,7 @@ public class MainActivity extends AppCompatActivity {
         createAndSwitchToNewSession();
 
         modelManager = new ModelManager(this);
+        settingsPrefs = SettingsPreferences.get(this);
         checkAndLoadModel();
     }
 
@@ -110,6 +113,13 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         bgExecutor.shutdownNow();
         if (smolLM != null) smolLM.close();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        applyGenerationOptionsFromSettings();
+        refreshSessionControls();
     }
 
     private void bindViews() {
@@ -236,6 +246,11 @@ public class MainActivity extends AppCompatActivity {
                         modelManager.getTokenizerFile());
                 runOnUiThread(() -> {
                     smolLM = inference;
+                    smolLM.updateGenerationOptions(new SmolLMInference.GenerationOptions(
+                            SettingsPreferences.getTemperature(MainActivity.this),
+                            SettingsPreferences.getTopP(MainActivity.this),
+                            SettingsPreferences.getMaxNewTokens(MainActivity.this)
+                    ));
                     hideStatus();
                     modelReady = true;
                     setInputEnabled(true);
@@ -269,6 +284,7 @@ public class MainActivity extends AppCompatActivity {
 
         String text = inputField.getText().toString().trim();
         if (text.isEmpty() || smolLM == null) return;
+        applyGenerationOptionsFromSettings();
 
         if (shouldResetConversationContext(currentSession.conversationHistory, text)) {
             Log.d(TAG, "Resetting model conversation context for detected topic switch");
@@ -294,7 +310,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         isGenerating = true;
-        shouldAutoScrollDuringGeneration = true;
+        shouldAutoScrollDuringGeneration = SettingsPreferences.isAutoScrollEnabled(this);
         updateSendEnabledForInput();
         refreshSessionControls();
 
@@ -436,13 +452,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshSessionControls() {
-        ChatSession session = getCurrentSession();
-        boolean hasSessionContent = session != null
-                && (!session.messages.isEmpty() || !session.conversationHistory.isEmpty());
-        newSessionTopButton.setVisibility(hasSessionContent ? View.VISIBLE : View.GONE);
+        newSessionTopButton.setVisibility(View.VISIBLE);
         sessionsPager.setVisibility(sessions.size() > 1 ? View.VISIBLE : View.GONE);
-        sessionsPager.setUserInputEnabled(!isGenerating);
+        boolean swipeEnabled = settingsPrefs == null
+                || SettingsPreferences.isSessionSwipeEnabled(this);
+        sessionsPager.setUserInputEnabled(!isGenerating && swipeEnabled);
         updateScrollToBottomVisibility();
+    }
+
+    private void applyGenerationOptionsFromSettings() {
+        if (smolLM == null) return;
+        smolLM.updateGenerationOptions(new SmolLMInference.GenerationOptions(
+                SettingsPreferences.getTemperature(this),
+                SettingsPreferences.getTopP(this),
+                SettingsPreferences.getMaxNewTokens(this)
+        ));
     }
 
     private ChatSession getCurrentSession() {

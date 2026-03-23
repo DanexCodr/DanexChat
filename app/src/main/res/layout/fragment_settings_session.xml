@@ -26,18 +26,32 @@
             android:textColor="?attr/colorOnSurface"
             android:textSize="14sp" />
 
-        <TextView
+        <Switch
+            android:id="@+id/switchSessionSwipe"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/settings_session_autoscroll"
-            android:textColor="?attr/colorOnSurface"
-            android:textSize="14sp" />
+            android:layout_marginTop="6dp"
+            android:text="@string/settings_session_swipe_toggle" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="14dp"
+            android:text="@string/settings_session_autoscroll"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="14sp" />
+
+        <Switch
+            android:id="@+id/switchAutoScroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/settings_session_autoscroll_toggle" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
             android:text="@string/settings_session_stop"
             android:textColor="?attr/colorOnSurface"
             android:textSize="14sp" />

@@ -21,24 +21,64 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/settings_general_app_identity"
+            android:layout_marginTop="8dp"
+            android:text="@string/settings_general_generation"
             android:textColor="?attr/colorOnSurface"
             android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/tvTemperatureLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/settings_temperature"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <SeekBar
+            android:id="@+id/seekTemperature"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="19" />
+
+        <TextView
+            android:id="@+id/tvTopPLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/settings_top_p"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <SeekBar
+            android:id="@+id/seekTopP"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="5" />
+
+        <TextView
+            android:id="@+id/tvMaxTokensLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/settings_max_tokens"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <SeekBar
+            android:id="@+id/seekMaxTokens"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="480" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="@string/settings_general_theme"
-            android:textColor="?attr/colorOnSurface"
-            android:textSize="14sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/settings_general_generation"
             android:textColor="?attr/colorOnSurface"
             android:textSize="14sp" />
 
