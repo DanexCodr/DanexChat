@@ -13,4 +13,5 @@
     <string name="load_error_toast">Could not load AI model</string>
     <string name="generation_error">⚠ An error occurred during generation.</string>
     <string name="error_prefix">⚠ Error: %1$s</string>
+    <string name="ars_clarify_reference">Could you clarify what you want me to define?</string>
 </resources>
