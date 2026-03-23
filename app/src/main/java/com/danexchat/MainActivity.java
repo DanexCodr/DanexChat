@@ -43,6 +43,10 @@ public class MainActivity extends AppCompatActivity {
     private static final float TOPIC_TOKEN_OVERLAP_THRESHOLD = 0.2f;
     private static final int MIN_TOPIC_TOKEN_LENGTH = 3;
     private static final Pattern TOPIC_TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{L}\\p{N}]+");
+    private static final Pattern LEADING_ARTICLE_PATTERN = Pattern.compile("^(a|an|the)\\s+");
+    private static final Set<String> AMBIGUOUS_REFERENCES = new HashSet<>(Arrays.asList(
+            "it", "this", "that", "they", "them", "he", "she", "him", "her", "these", "those"
+    ));
     private static final Set<String> TOPIC_STOPWORDS = new HashSet<>(Arrays.asList(
             "a", "an", "the", "is", "are", "was", "were", "am", "be", "to", "of", "for", "in",
             "on", "at", "and", "or", "but", "with", "about", "this", "that", "it", "its", "as",
@@ -199,12 +203,22 @@ public class MainActivity extends AppCompatActivity {
             conversationHistory.clear();
         }
 
+        ArsDecision arsDecision = resolveAmbiguityAndSpecifier(text);
         inputField.setText("");
-        setSendEnabled(false);
 
-        Message userMsg = new Message(Message.ROLE_USER, text);
-        addMessage(userMsg);
-        conversationHistory.add(userMsg);
+        addMessage(new Message(Message.ROLE_USER, text));
+        if (arsDecision.clarifyingQuestion != null) {
+            conversationHistory.add(new Message(Message.ROLE_USER, text));
+            Message clarification = new Message(Message.ROLE_ASSISTANT, arsDecision.clarifyingQuestion);
+            addMessage(clarification);
+            conversationHistory.add(new Message(Message.ROLE_ASSISTANT, arsDecision.clarifyingQuestion));
+            return;
+        }
+        if (!arsDecision.modelText.equals(text)) {
+            Log.d(TAG, "ARS specifier applied: " + arsDecision.modelText);
+        }
+        setSendEnabled(false);
+        conversationHistory.add(new Message(Message.ROLE_USER, arsDecision.modelText));
 
         // Placeholder response message updated token-by-token
         Message aiMsg = new Message(Message.ROLE_ASSISTANT, "");
@@ -343,5 +357,55 @@ public class MainActivity extends AppCompatActivity {
             tokens.add(part);
         }
         return tokens;
+    }
+
+    private ArsDecision resolveAmbiguityAndSpecifier(String userText) {
+        String subject = extractDefinitionSubject(userText);
+        if (subject == null) return new ArsDecision(userText, null);
+        if (!AMBIGUOUS_REFERENCES.contains(subject)) {
+            return new ArsDecision(userText, null);
+        }
+
+        String resolvedSubject = findMostRecentConcreteSubject();
+        if (resolvedSubject == null) {
+            return new ArsDecision(userText, getString(R.string.ars_clarify_reference));
+        }
+        return new ArsDecision("what is " + resolvedSubject + "?", null);
+    }
+
+    private static String extractDefinitionSubject(String text) {
+        String normalized = text.trim().toLowerCase(Locale.ROOT);
+        if (normalized.endsWith("?")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+        }
+        String[] prefixes = {"what is ", "what are ", "who is ", "who are ", "define ", "tell me about "};
+        for (String prefix : prefixes) {
+            if (!normalized.startsWith(prefix)) continue;
+            String subject = normalized.substring(prefix.length()).trim();
+            subject = LEADING_ARTICLE_PATTERN.matcher(subject).replaceFirst("").trim();
+            return subject.isEmpty() ? null : subject;
+        }
+        return null;
+    }
+
+    private String findMostRecentConcreteSubject() {
+        for (int i = conversationHistory.size() - 1; i >= 0; i--) {
+            Message message = conversationHistory.get(i);
+            if (!message.isUser()) continue;
+            String subject = extractDefinitionSubject(message.getContent());
+            if (subject == null || AMBIGUOUS_REFERENCES.contains(subject)) continue;
+            return subject;
+        }
+        return null;
+    }
+
+    private static class ArsDecision {
+        final String modelText;
+        final String clarifyingQuestion;
+
+        ArsDecision(String modelText, String clarifyingQuestion) {
+            this.modelText = modelText;
+            this.clarifyingQuestion = clarifyingQuestion;
+        }
     }
 }
