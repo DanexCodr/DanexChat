@@ -155,20 +155,6 @@ public class SmolLMInference {
            .append("If a request is ambiguous, pick the best-supported interpretation and continue directly.\n")
            .append("Keep answers clear, factual, and concise.\n")
            .append("<|im_end|>\n");
-        if (archivedSummary != null && !archivedSummary.trim().isEmpty()) {
-            sb.append("<|im_start|>system\n")
-              .append("Archived conversation summary: ")
-              .append(archivedSummary.trim())
-              .append('\n')
-              .append("<|im_end|>\n");
-        }
-        if (summary != null && !summary.trim().isEmpty()) {
-            sb.append("<|im_start|>system\n")
-              .append("Conversation summary: ")
-              .append(summary.trim())
-              .append('\n')
-              .append("<|im_end|>\n");
-        }
         for (Message msg : history) {
             sb.append(msg.isUser() ? "<|im_start|>user\n" : "<|im_start|>assistant\n")
               .append(msg.getContent()).append('\n')
