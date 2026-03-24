@@ -49,7 +49,7 @@ public class SmolLMInference {
     private static final Pattern SELF_IDENTITY_REFERENCE_PATTERN = Pattern.compile(
             "(?i)\\b(?:i am|i'm|as an ai|as a language model|my creator|created by|developed by|built by|made by)\\b");
     private static final Pattern SELF_IDENTITY_QUESTION_PATTERN = Pattern.compile(
-            "(?i)\\b(?:who\\s+are\\s+you|what\\s+are\\s+you|what\\s+is\\s+your\\s+name|who\\s+(?:created|developed|built|made)\\s+you)\\b");
+            "(?i)\\b(?:who(?:\\s+are|'re)\\s+you|what(?:\\s+are|'re)\\s+you|what\\s+is\\s+your\\s+name|who\\s+(?:created|developed|built|made)\\s+you)\\b");
     private static final String CANONICAL_IDENTITY_SENTENCE =
             "I am DanexChat, based on SmolLM, created by DanexCodr (Danison Nuñez).";
 
@@ -540,7 +540,9 @@ public class SmolLMInference {
             }
         }
         if (lastUserMessage == null) return false;
-        String normalized = normalizeApostrophes(lastUserMessage.getContent()).toLowerCase(Locale.ROOT);
+        String content = lastUserMessage.getContent();
+        if (content == null || content.isEmpty()) return false;
+        String normalized = normalizeApostrophes(content).toLowerCase(Locale.ROOT);
         return SELF_IDENTITY_QUESTION_PATTERN.matcher(normalized).find();
     }
 
