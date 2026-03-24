@@ -70,6 +70,9 @@ public class SmolLMInference {
     private static final float MIN_TOP_P = 0.05f;
     private static final float MAX_TOP_P = 1.0f;
     private static final float FLOAT_EPSILON = 0.001f;
+    private static final float DEFAULT_TEMPERATURE = 0.8f;
+    private static final float DEFAULT_TOP_P = 0.9f;
+    private static final int DEFAULT_MAX_NEW_TOKENS = 256;
 
     private final OrtEnvironment env;
     private final OrtSession session;
@@ -150,9 +153,9 @@ public class SmolLMInference {
 
         static GenerationOptions defaults() {
             return new GenerationOptions(
-                    SettingsPreferences.DEFAULT_TEMPERATURE,
-                    SettingsPreferences.DEFAULT_TOP_P,
-                    SettingsPreferences.DEFAULT_MAX_NEW_TOKENS
+                    DEFAULT_TEMPERATURE,
+                    DEFAULT_TOP_P,
+                    DEFAULT_MAX_NEW_TOKENS
             );
         }
     }

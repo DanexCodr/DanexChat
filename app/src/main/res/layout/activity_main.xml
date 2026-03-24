@@ -18,27 +18,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:title="@string/app_name"
-        app:titleTextColor="@android:color/white">
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:layout_gravity="end"
-            android:layout_marginEnd="6dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <ImageButton
-                android:id="@+id/btnSettings"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@drawable/bg_toolbar_button"
-                android:contentDescription="@string/settings_title"
-                android:padding="6dp"
-                android:scaleType="centerInside"
-                android:src="@drawable/danex_settings_logo" />
-        </LinearLayout>
-    </androidx.appcompat.widget.Toolbar>
+        app:titleTextColor="@android:color/white" />
 
     <!-- Status bar (model loading / errors) -->
     <TextView

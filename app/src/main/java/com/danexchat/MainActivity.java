@@ -1,6 +1,5 @@
 package com.danexchat;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -9,7 +8,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.ImageButton;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -70,7 +68,6 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayoutManager layoutManager;
     private EditText inputField;
     private Button sendButton;
-    private ImageButton settingsButton;
 
     private TextView tvStatus;
     private View inputRow;
@@ -105,12 +102,6 @@ public class MainActivity extends AppCompatActivity {
         if (smolLM != null) smolLM.close();
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        applyGenerationOptionsFromSettings();
-    }
-
     private void bindViews() {
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
@@ -120,7 +111,6 @@ public class MainActivity extends AppCompatActivity {
         sendButton = findViewById(R.id.btnSend);
         tvStatus = findViewById(R.id.tvStatus);
         inputRow = findViewById(R.id.inputRow);
-        settingsButton = findViewById(R.id.btnSettings);
 
         View rootLayout = findViewById(R.id.rootLayout);
         final int toolbarPaddingLeft = toolbar.getPaddingLeft();
@@ -166,8 +156,6 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void afterTextChanged(Editable s) {}
         });
-        settingsButton.setOnClickListener(v ->
-                startActivity(new Intent(MainActivity.this, SettingsActivity.class)));
     }
 
     private void setupRecyclerView() {
@@ -202,11 +190,7 @@ public class MainActivity extends AppCompatActivity {
                         modelManager.getTokenizerFile());
                 runOnUiThread(() -> {
                     smolLM = inference;
-                    smolLM.updateGenerationOptions(new SmolLMInference.GenerationOptions(
-                            SettingsPreferences.getTemperature(MainActivity.this),
-                            SettingsPreferences.getTopP(MainActivity.this),
-                            SettingsPreferences.getMaxNewTokens(MainActivity.this)
-                    ));
+                    smolLM.updateGenerationOptions(SmolLMInference.GenerationOptions.defaults());
                     hideStatus();
                     modelReady = true;
                     setInputEnabled(true);
@@ -236,7 +220,6 @@ public class MainActivity extends AppCompatActivity {
     private void onSendClicked() {
         String text = inputField.getText().toString().trim();
         if (text.isEmpty() || smolLM == null) return;
-        applyGenerationOptionsFromSettings();
 
         if (shouldResetConversationContext(conversationHistory, text)) {
             Log.d(TAG, "Resetting model conversation context for detected topic switch");
@@ -346,15 +329,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void hideStatus() {
         tvStatus.setVisibility(View.GONE);
-    }
-
-    private void applyGenerationOptionsFromSettings() {
-        if (smolLM == null) return;
-        smolLM.updateGenerationOptions(new SmolLMInference.GenerationOptions(
-                SettingsPreferences.getTemperature(this),
-                SettingsPreferences.getTopP(this),
-                SettingsPreferences.getMaxNewTokens(this)
-        ));
     }
 
     private boolean shouldResetConversationContext(List<Message> conversationHistory, String newUserText) {
