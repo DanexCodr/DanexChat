@@ -19,6 +19,7 @@ on:
 jobs:
   train:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     permissions:
       contents: read
 
@@ -38,16 +39,30 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r training/requirements.txt
 
+      - name: Validate workflow inputs
+        run: |
+          python - <<'PY'
+          try:
+              sparsity = float("${{ inputs.sparsity }}")
+          except ValueError as exc:
+              raise SystemExit(f"Invalid sparsity value: {exc}")
+          if not (0.0 <= sparsity <= 1.0):
+              raise SystemExit("sparsity must be between 0.0 and 1.0")
+          print(f"Validated sparsity={sparsity}")
+          PY
+
       - name: Run training pipeline
         run: |
+          echo "Using GitHub-hosted CPU runner (ubuntu-latest); training may take significant time."
           bash training/run_pipeline.sh \
             "${{ inputs.base_model }}" \
             "${{ inputs.sparsity }}" \
             "${{ inputs.workdir }}"
 
       - name: Upload training artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: training-artifacts
           path: ${{ inputs.workdir }}
-          if-no-files-found: error
+          if-no-files-found: ignore
