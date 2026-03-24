@@ -1,0 +1,53 @@
+name: Training Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_model:
+        description: "Base model id or local path"
+        required: false
+        default: "HuggingFaceTB/SmolLM2-135M-Instruct"
+      sparsity:
+        description: "Global pruning sparsity (0.0 - 1.0)"
+        required: false
+        default: "0.20"
+      workdir:
+        description: "Output working directory"
+        required: false
+        default: "training/artifacts"
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: training/requirements.txt
+
+      - name: Install training dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r training/requirements.txt
+
+      - name: Run training pipeline
+        run: |
+          bash training/run_pipeline.sh \
+            "${{ inputs.base_model }}" \
+            "${{ inputs.sparsity }}" \
+            "${{ inputs.workdir }}"
+
+      - name: Upload training artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: training-artifacts
+          path: ${{ inputs.workdir }}
+          if-no-files-found: error
