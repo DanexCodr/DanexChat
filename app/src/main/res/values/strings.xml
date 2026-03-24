@@ -17,14 +17,4 @@
     <string name="error_prefix">⚠ Error: %1$s</string>
     <string name="ars_clarify_reference">Proceeding with best match context.</string>
     <string name="ars_clarify_ambiguous_reference">Proceeding with best match context.</string>
-    <string name="settings_title">Settings</string>
-    <string name="settings_general_title">General settings</string>
-    <string name="settings_temperature">Temperature</string>
-    <string name="settings_temperature_value">Temperature: %1$.1f</string>
-    <string name="settings_top_p">Top-p</string>
-    <string name="settings_top_p_value">Top-p: %1$.1f</string>
-    <string name="settings_max_tokens">Max new tokens</string>
-    <string name="settings_max_tokens_value">Max new tokens: %1$d</string>
-    <string name="settings_general_theme">Theme follows your system mode automatically (light/dark).</string>
-    <string name="settings_general_generation">Adjust generation behavior in real time. Lower temperature/top-p is more deterministic; higher values are more creative.</string>
 </resources>

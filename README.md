@@ -9,7 +9,6 @@ An Android chat application powered by **SmolLM2-135M-Instruct** running entirel
 - ⚡ Quantized (Q4) ONNX model for fast on-device inference
 - 🔐 100% on-device — no data leaves your phone
 - 🧠 Single-conversation flow with lightweight ambiguity/topic handling
-- ⚙️ Runtime generation controls (temperature, top-p, max new tokens)
 - 📱 Supports **Android 11–15** (API 30–35)
 
 ## Architecture
@@ -21,9 +20,6 @@ app/
 ├── BPETokenizer.java         – Byte-level BPE tokenizer (loads tokenizer.json)
 ├── ModelManager.java         – Ensures bundled model/tokenizer are available in app storage
 ├── ChatAdapter.java          – RecyclerView chat bubble adapter
-├── SettingsActivity.java     – Hosts general inference settings
-├── GeneralSettingsFragment.java – Temperature/top-p/max token controls
-├── SettingsPreferences.java  – SharedPreferences-backed generation config
 └── Message.java              – Chat message data class
 ```
 
@@ -36,7 +32,7 @@ app/
 2. **Inference engine initialization**
    - `SmolLMInference` creates one ONNX Runtime session and tokenizer instance.
    - It discovers whether the model export includes KV-cache tensors and whether `position_ids` are required.
-   - Generation options are loaded from app settings and can be adjusted live.
+   - Generation options use fixed defaults (temperature/top-p/max tokens).
 
 3. **Prompt construction + generation**
    - Chat messages are transformed into a ChatML-style prompt with a fixed DanexChat system instruction.
