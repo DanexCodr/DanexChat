@@ -53,6 +53,12 @@ public class SmolLMInference {
             "(?i)\\b(?:i am|i'm|as an ai|as a language model|my creator|created by|developed by|built by|made by)\\b");
     private static final Pattern SELF_IDENTITY_QUESTION_PATTERN = Pattern.compile(
             "(?i)\\b(?:who(?:\\s+are|'re)\\s+you|what(?:\\s+are|'re)\\s+you|what\\s+is\\s+your\\s+name|who\\s+(?:created|developed|built|made)\\s+you)\\b");
+    private static final Pattern DATETIME_QUESTION_PATTERN = Pattern.compile(
+            "(?i)\\b(?:date\\s+and\\s+time|time\\s+and\\s+date|current\\s+datetime|current\\s+date\\s+and\\s+time|what(?:\\s+is|'s)\\s+the\\s+date\\s+and\\s+time)\\b");
+    private static final Pattern TIME_QUESTION_PATTERN = Pattern.compile(
+            "(?i)\\b(?:what\\s+time\\s+is\\s+it|what(?:\\s+is|'s)\\s+the\\s+time|current\\s+time|time\\s+now|tell\\s+me\\s+the\\s+time)\\b");
+    private static final Pattern DATE_QUESTION_PATTERN = Pattern.compile(
+            "(?i)\\b(?:what\\s+date\\s+is\\s+it|what(?:\\s+is|'s)\\s+the\\s+date|today(?:'s)?\\s+date|current\\s+date|date\\s+today)\\b");
     private static final String CANONICAL_IDENTITY_SENTENCE =
             "I am DanexChat, based on SmolLM, created by DanexCodr (Danison Nuñez).";
 
@@ -277,6 +283,11 @@ public class SmolLMInference {
             Map<String, String> promptTags,
             StreamCallback callback
     ) throws Exception {
+        String realtimeAnswer = resolveRealtimeDateTimeQuestion(history, promptTags);
+        if (realtimeAnswer != null) {
+            callback.onComplete(realtimeAnswer);
+            return;
+        }
         String prompt = buildPrompt(history, summary, archivedSummary, promptTags);
         long[] promptIds = tokenizer.encodeWithSpecialTokens(prompt);
 
@@ -625,19 +636,45 @@ public class SmolLMInference {
     }
 
     private static boolean isSelfIdentityQuestion(List<Message> history) {
-        Message lastUserMessage = null;
-        for (int i = history.size() - 1; i >= 0; i--) {
-            Message message = history.get(i);
-            if (message.isUser()) {
-                lastUserMessage = message;
-                break;
-            }
-        }
+        Message lastUserMessage = findLastUserMessage(history);
         if (lastUserMessage == null) return false;
         String content = lastUserMessage.getContent();
         if (content == null || content.isEmpty()) return false;
         String normalized = normalizeApostrophes(content).toLowerCase(Locale.ROOT);
         return SELF_IDENTITY_QUESTION_PATTERN.matcher(normalized).find();
+    }
+
+    private static String resolveRealtimeDateTimeQuestion(
+            List<Message> history,
+            Map<String, String> promptTags
+    ) {
+        Message lastUserMessage = findLastUserMessage(history);
+        if (lastUserMessage == null) return null;
+        String content = lastUserMessage.getContent();
+        if (content == null || content.isEmpty()) return null;
+        String normalized = normalizeApostrophes(content).toLowerCase(Locale.ROOT);
+        Map<String, String> tags = buildRealtimeTags(promptTags);
+        if (DATETIME_QUESTION_PATTERN.matcher(normalized).find()) {
+            return "The current date and time is " + tags.get(TAG_DATETIME) + ".";
+        }
+        if (TIME_QUESTION_PATTERN.matcher(normalized).find()) {
+            return "The current time is " + tags.get(TAG_TIME) + ".";
+        }
+        if (DATE_QUESTION_PATTERN.matcher(normalized).find()) {
+            return "Today's date is " + tags.get(TAG_DATE) + ".";
+        }
+        return null;
+    }
+
+    private static Message findLastUserMessage(List<Message> history) {
+        if (history == null || history.isEmpty()) return null;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            Message message = history.get(i);
+            if (message.isUser()) {
+                return message;
+            }
+        }
+        return null;
     }
 
     private static String normalizeApostrophes(String value) {
