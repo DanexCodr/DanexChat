@@ -26,20 +26,21 @@ def format_chatml(messages, context: dict) -> str:
     parts = []
     for msg in messages:
         role = msg["role"].strip().lower()
-        content = resolve_tags(msg["content"], context).strip()
-        parts.append(f"{CHATML_START}{role}\\n{content}\\n{CHATML_END}")
-    return "\\n".join(parts)
+        raw_content = msg["content"]
+        content = resolve_tags(raw_content, context).strip() if role == "assistant" else raw_content.strip()
+        parts.append(f"{CHATML_START}{role}\n{content}\n{CHATML_END}")
+    return "\n".join(parts)
 
 
 def convert_record(record: dict) -> str:
     if "messages" in record:
         return format_chatml(record["messages"], record)
-    prompt = resolve_tags(record.get("prompt", ""), record)
+    prompt = record.get("prompt", "")
     response = resolve_tags(record.get("response", ""), record)
     return (
-        f"{CHATML_START}system\\nYou are DanexChat, a helpful assistant.\\n{CHATML_END}\\n"
-        f"{CHATML_START}user\\n{prompt}\\n{CHATML_END}\\n"
-        f"{CHATML_START}assistant\\n{response}\\n{CHATML_END}"
+        f"{CHATML_START}system\nYou are DanexChat, a helpful assistant.\n{CHATML_END}\n"
+        f"{CHATML_START}user\n{prompt}\n{CHATML_END}\n"
+        f"{CHATML_START}assistant\n{response}\n{CHATML_END}"
     )
 
 
@@ -61,7 +62,7 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as f:
         for line in lines:
-            f.write(json.dumps({"text": line}, ensure_ascii=False) + "\\n")
+            f.write(json.dumps({"text": line}, ensure_ascii=False) + "\n")
 
     print(f"Wrote {len(lines)} training rows to {args.output}")
 
