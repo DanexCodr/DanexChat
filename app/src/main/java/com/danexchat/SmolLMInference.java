@@ -655,15 +655,33 @@ public class SmolLMInference {
         String normalized = normalizeApostrophes(content).toLowerCase(Locale.ROOT);
         Map<String, String> tags = buildRealtimeTags(promptTags);
         if (DATETIME_QUESTION_PATTERN.matcher(normalized).find()) {
-            return "The current date and time is " + tags.get(TAG_DATETIME) + ".";
+            String currentDateTime = coalesceTag(
+                    tags.get(TAG_DATETIME),
+                    DATETIME_FORMAT.format(LocalDateTime.now())
+            );
+            return "The current date and time is " + currentDateTime + ".";
         }
         if (TIME_QUESTION_PATTERN.matcher(normalized).find()) {
-            return "The current time is " + tags.get(TAG_TIME) + ".";
+            String currentTime = coalesceTag(
+                    tags.get(TAG_TIME),
+                    TIME_FORMAT.format(LocalDateTime.now())
+            );
+            return "The current time is " + currentTime + ".";
         }
         if (DATE_QUESTION_PATTERN.matcher(normalized).find()) {
-            return "Today's date is " + tags.get(TAG_DATE) + ".";
+            String currentDate = coalesceTag(
+                    tags.get(TAG_DATE),
+                    DATE_FORMAT.format(LocalDateTime.now())
+            );
+            return "Today's date is " + currentDate + ".";
         }
         return null;
+    }
+
+    private static String coalesceTag(String value, String fallback) {
+        if (value == null) return fallback;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? fallback : trimmed;
     }
 
     private static Message findLastUserMessage(List<Message> history) {
