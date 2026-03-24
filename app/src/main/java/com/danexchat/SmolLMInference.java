@@ -11,10 +11,10 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.FloatBuffer;
 import java.nio.LongBuffer;
-import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -82,12 +82,10 @@ public class SmolLMInference {
     private static final String TAG_DATE = "$date";
     private static final String TAG_TIME = "$time";
     private static final String TAG_DATETIME = "$datetime";
-    private static final SimpleDateFormat DATE_FORMAT =
-            new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
-    private static final SimpleDateFormat TIME_FORMAT =
-            new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
-    private static final SimpleDateFormat DATETIME_FORMAT =
-            new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+    private static final String DEFAULT_ROUTE = "general";
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final OrtEnvironment env;
     private final OrtSession session;
@@ -186,7 +184,7 @@ public class SmolLMInference {
 
     /** Build a ChatML-format DanexChat prompt from conversation history. */
     public String buildPrompt(List<Message> history, String summary, String archivedSummary) {
-        return buildPrompt(history, summary, archivedSummary, null, "");
+        return buildPrompt(history, summary, archivedSummary, null);
     }
 
     /** Build a ChatML-format DanexChat prompt from conversation history. */
@@ -194,8 +192,7 @@ public class SmolLMInference {
             List<Message> history,
             String summary,
             String archivedSummary,
-            Map<String, String> promptTags,
-            String routeHint
+            Map<String, String> promptTags
     ) {
         Map<String, String> effectiveTags = buildRealtimeTags(promptTags);
         StringBuilder sb = new StringBuilder();
@@ -208,12 +205,8 @@ public class SmolLMInference {
            .append("If a request is ambiguous, pick the best-supported interpretation and continue directly.\n")
            .append("Keep answers clear, factual, and concise.\n")
            .append("Routing mode: $route.\n")
-           .append("Current date is $date, current time is $time, and current date-time is $datetime.\n")
+           .append("Current date is $date, current time is $time, and current datetime is $datetime.\n")
            .append("<|im_end|>\n");
-        String routedMode = routeHint == null ? "" : routeHint.trim();
-        if (!routedMode.isEmpty()) {
-            appendSummaryBlock(sb, "Routing mode", routedMode);
-        }
         appendSummaryBlock(sb, "Archived conversation summary", archivedSummary);
         appendSummaryBlock(sb, "Conversation summary", summary);
         appendSummaryBlock(sb, "Factual dictionary hints", buildDictionaryFacts(history));
@@ -240,7 +233,7 @@ public class SmolLMInference {
             String archivedSummary,
             StreamCallback callback
     ) {
-        generate(history, summary, archivedSummary, null, "", callback);
+        generate(history, summary, archivedSummary, null, callback);
     }
 
     public synchronized void generate(
@@ -248,18 +241,17 @@ public class SmolLMInference {
             String summary,
             String archivedSummary,
             Map<String, String> promptTags,
-            String routeHint,
             StreamCallback callback
     ) {
         stopRequested.set(false);
         try {
-            generateInternal(history, summary, archivedSummary, promptTags, routeHint, callback);
+            generateInternal(history, summary, archivedSummary, promptTags, callback);
         } catch (Exception firstError) {
             if (!requiresPositionIds && isMissingPositionIdsError(firstError)) {
                 Log.w(TAG, "Retrying generation with position_ids enabled after runtime error", firstError);
                 requiresPositionIds = true;
                 try {
-                    generateInternal(history, summary, archivedSummary, promptTags, routeHint, callback);
+                    generateInternal(history, summary, archivedSummary, promptTags, callback);
                     return;
                 } catch (Exception retryError) {
                     Log.e(TAG, "Generation retry failed", retryError);
@@ -283,10 +275,9 @@ public class SmolLMInference {
             String summary,
             String archivedSummary,
             Map<String, String> promptTags,
-            String routeHint,
             StreamCallback callback
     ) throws Exception {
-        String prompt = buildPrompt(history, summary, archivedSummary, promptTags, routeHint);
+        String prompt = buildPrompt(history, summary, archivedSummary, promptTags);
         long[] promptIds = tokenizer.encodeWithSpecialTokens(prompt);
 
         // Trim to max context with an attention sink prefix + rolling recent window.
@@ -345,11 +336,11 @@ public class SmolLMInference {
 
     private static Map<String, String> buildRealtimeTags(Map<String, String> promptTags) {
         Map<String, String> merged = new LinkedHashMap<>();
-        Date now = new Date();
+        LocalDateTime now = LocalDateTime.now();
         merged.put(TAG_DATE, DATE_FORMAT.format(now));
         merged.put(TAG_TIME, TIME_FORMAT.format(now));
         merged.put(TAG_DATETIME, DATETIME_FORMAT.format(now));
-        merged.put("$route", "general");
+        merged.put("$route", DEFAULT_ROUTE);
         if (promptTags != null) {
             for (Map.Entry<String, String> entry : promptTags.entrySet()) {
                 if (entry.getKey() == null || entry.getValue() == null) continue;

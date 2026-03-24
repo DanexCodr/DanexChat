@@ -4,5 +4,5 @@
   "onnx": "ONNX is an open model exchange format used here to run inference with ONNX Runtime on Android.",
   "quantization": "4-bit quantization reduces model size and memory usage while keeping useful generation quality.",
   "routing": "Routing classifies requests such as factual, creative, or general so generation settings can be adjusted.",
-  "date": "Use the $date tag for current local date and $time for current local time in prompts."
+  "date": "A date is a calendar reference for a specific day such as year-month-day."
 }

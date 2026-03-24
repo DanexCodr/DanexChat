@@ -20,10 +20,14 @@ import java.util.TreeMap;
  */
 public class FactualDictionary {
 
+    private static final long MAX_DICTIONARY_BYTES = 1024L * 1024L;
     private final Map<String, String> entries;
 
     public FactualDictionary(File dictionaryFile) throws IOException, JSONException {
-        String json = Files.readString(dictionaryFile.toPath(), StandardCharsets.UTF_8);
+        if (dictionaryFile.length() > MAX_DICTIONARY_BYTES) {
+            throw new IOException("Dictionary asset is too large: " + dictionaryFile.length());
+        }
+        String json = new String(Files.readAllBytes(dictionaryFile.toPath()), StandardCharsets.UTF_8);
         JSONObject root = new JSONObject(json);
         Map<String, String> loaded = new TreeMap<>();
         Iterator<String> keys = root.keys();
