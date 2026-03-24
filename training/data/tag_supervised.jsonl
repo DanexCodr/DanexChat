@@ -1,0 +1,10 @@
+{"prompt":"Use $date and answer today's date in ISO format.","response":"$date"}
+{"prompt":"Set $key: user and $value: danex. Return only $result as key=value.","response":"$result"}
+{"prompt":"Given $key: city and $value: Santo Domingo, write $result as JSON.","response":"$result"}
+{"prompt":"Echo this mapping with tags: $key: language, $value: Java. Return $result.","response":"$result"}
+{"prompt":"Template fill: Date is $date.","response":"Date is $date."}
+{"prompt":"Template fill: $key: framework, $value: Android. Produce $result as framework=Android.","response":"$result"}
+{"prompt":"Transform tags into sentence: key=$key, value=$value, result=$result.","response":"$result"}
+{"prompt":"Read tags: $key: color and $value: blue. Return compact $result.","response":"$result"}
+{"prompt":"Use $date in this answer: Backup scheduled on $date.","response":"Backup scheduled on $date."}
+{"prompt":"Given $key: timezone and $value: UTC-4, create $result.","response":"$result"}
