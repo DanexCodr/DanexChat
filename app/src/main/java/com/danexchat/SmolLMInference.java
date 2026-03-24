@@ -48,6 +48,8 @@ public class SmolLMInference {
             "(?i)\\b(?:i\\s+(?:created|developed|built|made)\\s+myself|i\\s+am\\s+my\\s+own\\s+(?:creator|developer)|my\\s+(?:creator|developer)\\s+is\\s+(?:me|myself|danexchat)|i\\s+(?:created|developed|built|made)\\s+danexchat)\\b");
     private static final Pattern SELF_IDENTITY_REFERENCE_PATTERN = Pattern.compile(
             "(?i)\\b(?:i am|i'm|as an ai|as a language model|my creator|created by|developed by|built by|made by)\\b");
+    private static final Pattern SELF_IDENTITY_QUESTION_PATTERN = Pattern.compile(
+            "(?i)\\b(?:who(?:\\s+are|'re)\\s+you|what(?:\\s+are|'re)\\s+you|what\\s+is\\s+your\\s+name|who\\s+(?:created|developed|built|made)\\s+you)\\b");
     private static final String CANONICAL_IDENTITY_SENTENCE =
             "I am DanexChat, based on SmolLM, created by DanexCodr (Danison Nuñez).";
 
@@ -235,12 +237,13 @@ public class SmolLMInference {
 
         // Trim to max context with an attention sink prefix + rolling recent window.
         promptIds = trimPromptWithAttentionSink(promptIds);
+        boolean forceCanonicalIdentity = isSelfIdentityQuestion(history);
 
         StringBuilder responseBuilder = new StringBuilder();
         if (hasKVCache) {
-            generateWithKVCache(promptIds, responseBuilder, callback);
+            generateWithKVCache(promptIds, responseBuilder, callback, forceCanonicalIdentity);
         } else {
-            generateNoKVCache(promptIds, responseBuilder, callback);
+            generateNoKVCache(promptIds, responseBuilder, callback, forceCanonicalIdentity);
         }
     }
 
@@ -296,7 +299,8 @@ public class SmolLMInference {
 
     private void generateWithKVCache(long[] promptIds,
                                       StringBuilder out,
-                                      StreamCallback cb) throws OrtException {
+                                      StreamCallback cb,
+                                      boolean forceCanonicalIdentity) throws OrtException {
         int numLayers = pastKeyNames.size();
         // Past KV state: [numLayers][batch=1][numKvHeads][pastSeq][headDim]
         // Represented as flat float arrays with an associated past-length counter.
@@ -351,7 +355,7 @@ public class SmolLMInference {
             currentIds = new long[]{nextToken};
         }
 
-        cb.onComplete(enforceAssistantIdentity(out.toString()));
+        cb.onComplete(enforceAssistantIdentity(out.toString(), forceCanonicalIdentity));
     }
 
     private StepResult runKVStep(long[] inputIds, long[] attnMask,
@@ -412,7 +416,8 @@ public class SmolLMInference {
 
     private void generateNoKVCache(long[] promptIds,
                                     StringBuilder out,
-                                    StreamCallback cb) throws OrtException {
+                                    StreamCallback cb,
+                                    boolean forceCanonicalIdentity) throws OrtException {
         List<Long> allIds = new ArrayList<>();
         for (long id : promptIds) allIds.add(id);
         List<Long> generatedIds = new ArrayList<>();
@@ -471,20 +476,23 @@ public class SmolLMInference {
             }
         }
 
-        cb.onComplete(enforceAssistantIdentity(out.toString()));
+        cb.onComplete(enforceAssistantIdentity(out.toString(), forceCanonicalIdentity));
     }
 
     // -----------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------
 
-    private static String enforceAssistantIdentity(String response) {
+    private static String enforceAssistantIdentity(String response, boolean forceCanonicalIdentity) {
         if (response == null || response.isEmpty()) return response;
 
         String normalized = normalizeApostrophes(response).trim();
         String originalLower = normalized.toLowerCase(Locale.ROOT);
         boolean hadCanonicalIdentityInOriginal =
                 originalLower.contains("danexchat") && originalLower.contains("danexcodr");
+        if (forceCanonicalIdentity && !hadCanonicalIdentityInOriginal) {
+            return CANONICAL_IDENTITY_SENTENCE;
+        }
         boolean touched = false;
 
         java.util.regex.Matcher thirdPartyIdentityMatcher =
@@ -520,6 +528,22 @@ public class SmolLMInference {
                     .toString();
         }
         return normalized;
+    }
+
+    private static boolean isSelfIdentityQuestion(List<Message> history) {
+        Message lastUserMessage = null;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            Message message = history.get(i);
+            if (message.isUser()) {
+                lastUserMessage = message;
+                break;
+            }
+        }
+        if (lastUserMessage == null) return false;
+        String content = lastUserMessage.getContent();
+        if (content == null || content.isEmpty()) return false;
+        String normalized = normalizeApostrophes(content).toLowerCase(Locale.ROOT);
+        return SELF_IDENTITY_QUESTION_PATTERN.matcher(normalized).find();
     }
 
     private static String normalizeApostrophes(String value) {
