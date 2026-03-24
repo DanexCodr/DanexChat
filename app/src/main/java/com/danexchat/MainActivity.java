@@ -20,9 +20,11 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -45,6 +47,10 @@ public class MainActivity extends AppCompatActivity {
     private static final Pattern TOPIC_TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{L}\\p{N}]+");
     private static final Pattern DEFINITION_ARTICLE_PATTERN = Pattern.compile("^(a|an|the)\\s+");
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
+    private static final Pattern FACTUAL_ROUTE_PATTERN = Pattern.compile(
+            "(?i)\\b(?:who|what|when|where|which|how many|define|date|time|today|day)\\b");
+    private static final Pattern CREATIVE_ROUTE_PATTERN = Pattern.compile(
+            "(?i)\\b(?:write|create|story|poem|imagine|brainstorm|roleplay)\\b");
     private static final int RECENT_CONTEXT_TOKEN_BUDGET = 1500;
     private static final int SUMMARY_TOKEN_BUDGET = 300;
     private static final int ARCHIVE_TOKEN_BUDGET = 220;
@@ -75,6 +81,7 @@ public class MainActivity extends AppCompatActivity {
     private final List<Message> conversationHistory = new ArrayList<>();
     private String conversationSummary = "";
     private String archivedSummary = "";
+    private String routeHint = "";
 
     private ModelManager modelManager;
     private SmolLMInference smolLM;
@@ -187,7 +194,8 @@ public class MainActivity extends AppCompatActivity {
             try {
                 SmolLMInference inference = new SmolLMInference(
                         modelManager.getModelFile(),
-                        modelManager.getTokenizerFile());
+                        modelManager.getTokenizerFile(),
+                        modelManager.getDictionaryFile());
                 runOnUiThread(() -> {
                     smolLM = inference;
                     smolLM.updateGenerationOptions(SmolLMInference.GenerationOptions.defaults());
@@ -229,6 +237,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         String modelText = resolveAmbiguityAndSpecifier(conversationHistory, text);
+        routeHint = determineRouteHint(modelText);
         inputField.setText("");
 
         Message userMsg = new Message(Message.ROLE_USER, text);
@@ -248,9 +257,11 @@ public class MainActivity extends AppCompatActivity {
 
         isGenerating = true;
         updateSendEnabledForInput();
+        Map<String, String> promptTags = buildPromptTags();
+        String localRouteHint = routeHint;
 
         bgExecutor.execute(() ->
-                smolLM.generate(history, conversationSummary, archivedSummary, new SmolLMInference.StreamCallback() {
+                smolLM.generate(history, conversationSummary, archivedSummary, promptTags, localRouteHint, new SmolLMInference.StreamCallback() {
                     @Override
                     public void onToken(String piece) {
                         runOnUiThread(() -> {
@@ -474,6 +485,25 @@ public class MainActivity extends AppCompatActivity {
                 .replace('\r', ' ')
                 .replace('\t', ' ')
                 .trim();
+    }
+
+    private String determineRouteHint(String userText) {
+        if (FACTUAL_ROUTE_PATTERN.matcher(userText).find()) {
+            smolLM.updateGenerationOptions(new SmolLMInference.GenerationOptions(0.45f, 0.82f, 220));
+            return "factual";
+        }
+        if (CREATIVE_ROUTE_PATTERN.matcher(userText).find()) {
+            smolLM.updateGenerationOptions(new SmolLMInference.GenerationOptions(0.9f, 0.94f, 320));
+            return "creative";
+        }
+        smolLM.updateGenerationOptions(SmolLMInference.GenerationOptions.defaults());
+        return "general";
+    }
+
+    private Map<String, String> buildPromptTags() {
+        Map<String, String> tags = new HashMap<>();
+        tags.put("$route", routeHint);
+        return tags;
     }
 
     private void compactConversationHistoryIfNeeded() {
