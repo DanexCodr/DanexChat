@@ -27,3 +27,8 @@ captures/
 # Downloaded model files (large binary – stored in app internal storage at runtime)
 *.onnx
 tokenizer.json
+
+# Python training artifacts
+training/artifacts/
+__pycache__/
+*.pyc
