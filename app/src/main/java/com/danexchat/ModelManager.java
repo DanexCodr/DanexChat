@@ -15,6 +15,7 @@ import java.io.InputStream;
  * Files are stored in the app's internal files directory:
  *   <filesDir>/smollm2/model_q4.onnx
  *   <filesDir>/smollm2/tokenizer.json
+ *   <filesDir>/smollm2/dictionary.json
  */
 public class ModelManager {
 
@@ -22,33 +23,40 @@ public class ModelManager {
 
     private static final String MODEL_FILENAME     = "model_q4.onnx";
     private static final String TOKENIZER_FILENAME = "tokenizer.json";
+    private static final String DICTIONARY_FILENAME = "dictionary.json";
     private static final String ASSET_MODEL_PATH = "smollm2/" + MODEL_FILENAME;
     private static final String ASSET_TOKENIZER_PATH = "smollm2/" + TOKENIZER_FILENAME;
+    private static final String ASSET_DICTIONARY_PATH = "smollm2/" + DICTIONARY_FILENAME;
     private static final String MODEL_DIR          = "smollm2";
     private static final long MIN_MODEL_BYTES      = 50L * 1024L * 1024L; // expected ≈90MB
     private static final long MIN_TOKENIZER_BYTES  = 1024L;
+    private static final long MIN_DICTIONARY_BYTES = 32L;
 
     private final File modelDir;
     private final File modelFile;
     private final File tokenizerFile;
+    private final File dictionaryFile;
     private final AssetManager assetManager;
 
     public ModelManager(Context context) {
         modelDir      = new File(context.getFilesDir(), MODEL_DIR);
         modelFile     = new File(modelDir, MODEL_FILENAME);
         tokenizerFile = new File(modelDir, TOKENIZER_FILENAME);
+        dictionaryFile = new File(modelDir, DICTIONARY_FILENAME);
         assetManager = context.getAssets();
         if (!modelDir.exists()) modelDir.mkdirs();
     }
 
     public File getModelFile()     { return modelFile; }
     public File getTokenizerFile() { return tokenizerFile; }
+    public File getDictionaryFile() { return dictionaryFile; }
 
     /** Returns true if bundled assets can be prepared into internal storage and pass size checks. */
     public boolean isReady() {
         ensureBundledFiles();
         return hasValidSize(modelFile, MIN_MODEL_BYTES)
-                && hasValidSize(tokenizerFile, MIN_TOKENIZER_BYTES);
+                && hasValidSize(tokenizerFile, MIN_TOKENIZER_BYTES)
+                && hasValidSize(dictionaryFile, MIN_DICTIONARY_BYTES);
     }
 
     /**
@@ -56,6 +64,13 @@ public class ModelManager {
      * local cached copies are missing.
      */
     public void ensureBundledFiles() {
+        if (!hasValidSize(dictionaryFile, MIN_DICTIONARY_BYTES)) {
+            try {
+                copyAssetIfExists(ASSET_DICTIONARY_PATH, dictionaryFile);
+            } catch (IOException e) {
+                Log.w(TAG, "Bundled dictionary asset was not available", e);
+            }
+        }
         if (!hasValidSize(tokenizerFile, MIN_TOKENIZER_BYTES)) {
             try {
                 copyAssetIfExists(ASSET_TOKENIZER_PATH, tokenizerFile);

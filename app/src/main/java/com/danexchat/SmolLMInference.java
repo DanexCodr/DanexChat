@@ -11,10 +11,13 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.FloatBuffer;
 import java.nio.LongBuffer;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -75,10 +78,19 @@ public class SmolLMInference {
     private static final float DEFAULT_TEMPERATURE = 0.8f;
     private static final float DEFAULT_TOP_P = 0.9f;
     private static final int DEFAULT_MAX_NEW_TOKENS = 256;
+    private static final int MAX_DICTIONARY_FACTS = 3;
+    private static final String TAG_DATE = "$date";
+    private static final String TAG_TIME = "$time";
+    private static final String TAG_DATETIME = "$datetime";
+    private static final String DEFAULT_ROUTE = "general";
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final OrtEnvironment env;
     private final OrtSession session;
     private final BPETokenizer tokenizer;
+    private final FactualDictionary factualDictionary;
 
     // KV-cache tensor name lists (populated at load time)
     private final List<String> pastKeyNames = new ArrayList<>();
@@ -96,6 +108,11 @@ public class SmolLMInference {
 
     public SmolLMInference(File modelFile, File tokenizerFile)
             throws OrtException, IOException, org.json.JSONException {
+        this(modelFile, tokenizerFile, null);
+    }
+
+    public SmolLMInference(File modelFile, File tokenizerFile, File dictionaryFile)
+            throws OrtException, IOException, org.json.JSONException {
 
         env = OrtEnvironment.getEnvironment();
 
@@ -105,6 +122,9 @@ public class SmolLMInference {
 
         session = env.createSession(modelFile.getAbsolutePath(), opts);
         tokenizer = new BPETokenizer(tokenizerFile);
+        factualDictionary = dictionaryFile != null && dictionaryFile.exists()
+                ? new FactualDictionary(dictionaryFile)
+                : null;
         discoverKVNames();
         Log.i(TAG, "Loaded SmolLM2. KV-cache layers: " + pastKeyNames.size());
     }
@@ -164,6 +184,17 @@ public class SmolLMInference {
 
     /** Build a ChatML-format DanexChat prompt from conversation history. */
     public String buildPrompt(List<Message> history, String summary, String archivedSummary) {
+        return buildPrompt(history, summary, archivedSummary, null);
+    }
+
+    /** Build a ChatML-format DanexChat prompt from conversation history. */
+    public String buildPrompt(
+            List<Message> history,
+            String summary,
+            String archivedSummary,
+            Map<String, String> promptTags
+    ) {
+        Map<String, String> effectiveTags = buildRealtimeTags(promptTags);
         StringBuilder sb = new StringBuilder();
         sb.append("<|im_start|>system\n")
            .append("You are DanexChat, an on-device AI assistant based on SmolLM, created by DanexCodr (Danison Nuñez).\n")
@@ -173,16 +204,19 @@ public class SmolLMInference {
            .append("If the user switches topics, switch context immediately and do not continue the old topic.\n")
            .append("If a request is ambiguous, pick the best-supported interpretation and continue directly.\n")
            .append("Keep answers clear, factual, and concise.\n")
+           .append("Routing mode: $route.\n")
+           .append("Current date is $date, current time is $time, and current datetime is $datetime.\n")
            .append("<|im_end|>\n");
         appendSummaryBlock(sb, "Archived conversation summary", archivedSummary);
         appendSummaryBlock(sb, "Conversation summary", summary);
+        appendSummaryBlock(sb, "Factual dictionary hints", buildDictionaryFacts(history));
         for (Message msg : history) {
             sb.append(msg.isUser() ? "<|im_start|>user\n" : "<|im_start|>assistant\n")
               .append(msg.getContent()).append('\n')
               .append("<|im_end|>\n");
         }
         sb.append("<|im_start|>assistant\n");
-        return sb.toString();
+        return applyPromptTags(sb.toString(), effectiveTags);
     }
 
     /**
@@ -199,15 +233,25 @@ public class SmolLMInference {
             String archivedSummary,
             StreamCallback callback
     ) {
+        generate(history, summary, archivedSummary, null, callback);
+    }
+
+    public synchronized void generate(
+            List<Message> history,
+            String summary,
+            String archivedSummary,
+            Map<String, String> promptTags,
+            StreamCallback callback
+    ) {
         stopRequested.set(false);
         try {
-            generateInternal(history, summary, archivedSummary, callback);
+            generateInternal(history, summary, archivedSummary, promptTags, callback);
         } catch (Exception firstError) {
             if (!requiresPositionIds && isMissingPositionIdsError(firstError)) {
                 Log.w(TAG, "Retrying generation with position_ids enabled after runtime error", firstError);
                 requiresPositionIds = true;
                 try {
-                    generateInternal(history, summary, archivedSummary, callback);
+                    generateInternal(history, summary, archivedSummary, promptTags, callback);
                     return;
                 } catch (Exception retryError) {
                     Log.e(TAG, "Generation retry failed", retryError);
@@ -230,9 +274,10 @@ public class SmolLMInference {
             List<Message> history,
             String summary,
             String archivedSummary,
+            Map<String, String> promptTags,
             StreamCallback callback
     ) throws Exception {
-        String prompt   = buildPrompt(history, summary, archivedSummary);
+        String prompt = buildPrompt(history, summary, archivedSummary, promptTags);
         long[] promptIds = tokenizer.encodeWithSpecialTokens(prompt);
 
         // Trim to max context with an attention sink prefix + rolling recent window.
@@ -262,6 +307,55 @@ public class SmolLMInference {
             t = t.getCause();
         }
         return false;
+    }
+
+    private String buildDictionaryFacts(List<Message> history) {
+        if (factualDictionary == null || history == null || history.isEmpty()) {
+            return "";
+        }
+        Message lastUser = null;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            Message msg = history.get(i);
+            if (msg.isUser()) {
+                lastUser = msg;
+                break;
+            }
+        }
+        if (lastUser == null) {
+            return "";
+        }
+        List<String> facts = factualDictionary.findRelevantFacts(
+                lastUser.getContent(),
+                MAX_DICTIONARY_FACTS
+        );
+        if (facts.isEmpty()) {
+            return "";
+        }
+        return String.join(" | ", facts);
+    }
+
+    private static Map<String, String> buildRealtimeTags(Map<String, String> promptTags) {
+        Map<String, String> merged = new LinkedHashMap<>();
+        LocalDateTime now = LocalDateTime.now();
+        merged.put(TAG_DATE, DATE_FORMAT.format(now));
+        merged.put(TAG_TIME, TIME_FORMAT.format(now));
+        merged.put(TAG_DATETIME, DATETIME_FORMAT.format(now));
+        merged.put("$route", DEFAULT_ROUTE);
+        if (promptTags != null) {
+            for (Map.Entry<String, String> entry : promptTags.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) continue;
+                merged.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return merged;
+    }
+
+    private static String applyPromptTags(String prompt, Map<String, String> tags) {
+        String resolved = prompt;
+        for (Map.Entry<String, String> entry : tags.entrySet()) {
+            resolved = resolved.replace(entry.getKey(), entry.getValue());
+        }
+        return resolved;
     }
 
     private static void appendSummaryBlock(StringBuilder sb, String label, String summary) {
