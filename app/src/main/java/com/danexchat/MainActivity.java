@@ -33,7 +33,7 @@ import java.util.regex.Pattern;
 /**
  * Main chat activity for DanexChat.
  *
- * The SmolLM2-135M-Instruct ONNX model and tokenizer are bundled with the app.
+ * The SmolLM360M-4q ONNX model and tokenizer are bundled with the app.
  * On startup, bundled assets are prepared in internal storage and then loaded
  * for fully on-device chat.
  */

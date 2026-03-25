@@ -18,7 +18,7 @@ This document describes what DanexChat **cannot reliably handle yet** in its cur
 
 ## 2) Reasoning and coherence limitations
 
-1. **Small model constraints (SmolLM2-135M)**
+1. **Small model constraints (SmolLM360M-4q)**
    - Compact model size is fast and efficient, but limits deep multi-step reasoning.
    - Complex planning, advanced logic chains, and domain-heavy analysis can degrade.
 

@@ -19,7 +19,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Byte-level BPE tokenizer for SmolLM2.
+ * Byte-level BPE tokenizer for SmolLM360M-4q.
  *
  * Parses a HuggingFace tokenizer.json and implements:
  *  - byte-to-unicode / unicode-to-byte mapping (GPT-2 style)
@@ -28,7 +28,7 @@ import java.util.regex.Pattern;
  */
 public class BPETokenizer {
 
-    // Special token IDs (SmolLM2-135M-Instruct)
+    // Special token IDs (SmolLM360M-4q)
     public static final long TOKEN_ENDOFTEXT   = 0L;
     public static final long TOKEN_IM_START     = 1L;
     public static final long TOKEN_IM_END       = 2L;

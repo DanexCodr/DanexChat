@@ -15,7 +15,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download SmolLM2 bundled assets
+      - name: Download SmolLM360M-4q bundled assets
         run: |
           mkdir -p app/src/main/assets/smollm2
           download_file() {
@@ -30,15 +30,15 @@ jobs:
           }
 
           download_file app/src/main/assets/smollm2/model_q4.onnx \
-            "https://huggingface.co/onnx-community/SmolLM2-135M-Instruct/resolve/main/onnx/model_q4.onnx" \
-            "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/main/onnx/model_q4.onnx" || {
+            "https://huggingface.co/onnx-community/SmolLM2-360M-Instruct/resolve/main/onnx/model_q4.onnx" \
+            "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/onnx/model_q4.onnx" || {
               echo "::warning::Unable to download model_q4.onnx from public mirrors (likely authorization-restricted). Creating a CI placeholder file only to validate APK packaging; model inference is expected to be non-functional in this artifact."
               printf 'ci-placeholder-model-not-a-real-onnx\n' > app/src/main/assets/smollm2/model_q4.onnx
             }
 
           download_file app/src/main/assets/smollm2/tokenizer.json \
-            "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/main/tokenizer.json" \
-            "https://huggingface.co/onnx-community/SmolLM2-135M-Instruct/resolve/main/tokenizer.json" || {
+            "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/tokenizer.json" \
+            "https://huggingface.co/onnx-community/SmolLM2-360M-Instruct/resolve/main/tokenizer.json" || {
               echo "::warning::Unable to download tokenizer.json from public mirrors. Creating a minimal CI placeholder only to validate APK packaging; model inference is expected to be non-functional in this artifact."
               printf '{"model":{"vocab":{},"merges":[]},"added_tokens":[]}\n' > app/src/main/assets/smollm2/tokenizer.json
             }

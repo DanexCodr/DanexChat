@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DanexChat</string>
-    <string name="powered_by">DanexChat · Built on SmolLM2 · On-device AI</string>
+    <string name="powered_by">DanexChat · Built on SmolLM360M-4q · On-device AI</string>
     <string name="input_hint">Message DanexChat…</string>
     <string name="send">Send</string>
     <string name="send_arrow">➤</string>

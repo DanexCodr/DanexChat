@@ -10,7 +10,7 @@ import java.io.IOException;
 import java.io.InputStream;
 
 /**
- * Manages bundled SmolLM2 ONNX model and tokenizer assets.
+ * Manages bundled SmolLM360M-4q ONNX model and tokenizer assets.
  *
  * Files are stored in the app's internal files directory:
  *   <filesDir>/smollm2/model_q4.onnx

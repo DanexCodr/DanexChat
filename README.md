@@ -1,11 +1,11 @@
 # DanexChat
 
-An Android chat application powered by **SmolLM2-135M-Instruct** running entirely **on-device** using ONNX Runtime. No internet connection required for inference — the AI model runs locally on your Android device.
+An Android chat application powered by **SmolLM360M-4q** running entirely **on-device** using ONNX Runtime. No internet connection required for inference — the AI model runs locally on your Android device.
 
 ## Features
 
 - 💬 Chat interface with streaming token-by-token output
-- 🤖 **SmolLM2-135M-Instruct** — a compact, capable language model by HuggingFace
+- 🤖 **SmolLM360M-4q** — a compact, capable language model by HuggingFace
 - ⚡ Quantized (Q4) ONNX model for fast on-device inference
 - 🔐 100% on-device — no data leaves your phone
 - 🧠 Single-conversation flow with lightweight ambiguity/topic handling
@@ -52,9 +52,9 @@ app/
 
 | Property | Value |
 |---|---|
-| Model | `onnx-community/SmolLM2-135M-Instruct` |
+| Model | `SmolLM360M-4q` |
 | Format | ONNX Q4 quantized |
-| Model size in APK/assets | ≈ 90 MB |
+| Model size in APK/assets | Depends on bundled ONNX export |
 | Inference engine | ONNX Runtime Android 1.20.0 |
 | Minimum Android | API 30 (Android 11) |
 | Target Android | API 35 (Android 15) |

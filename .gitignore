@@ -28,7 +28,5 @@ captures/
 *.onnx
 tokenizer.json
 
-# Python training artifacts
-training/artifacts/
 __pycache__/
 *.pyc
