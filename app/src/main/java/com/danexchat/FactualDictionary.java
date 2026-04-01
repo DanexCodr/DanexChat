@@ -9,18 +9,32 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
- * Lightweight local dictionary used to ground factual prompts.
+ * Lightweight local WordNet-style dictionary used to ground factual prompts.
  */
 public class FactualDictionary {
 
     private static final long MAX_DICTIONARY_BYTES = 1024L * 1024L;
+    // Prefer direct key hits, then semantic-ish overlap on key terms, then weaker overlap on definitions.
+    private static final int WHOLE_KEY_MATCH_WEIGHT = 4;
+    private static final int KEY_TOKEN_OVERLAP_WEIGHT = 3;
+    private static final int VALUE_TOKEN_OVERLAP_WEIGHT = 1;
+    private static final int MIN_TOKEN_LENGTH = 2;
+    private static final Set<String> INVARIANT_IES_WORDS = new HashSet<>(
+            java.util.Arrays.asList("species", "series", "aries"));
+    private static final Set<String> INVARIANT_AS_WORDS = new HashSet<>(
+            java.util.Arrays.asList("atlas", "canvas", "bias", "gas", "yes"));
+    private static final Set<String> INVARIANT_OS_WORDS = new HashSet<>(
+            java.util.Arrays.asList("chaos", "ethos", "pathos", "cosmos"));
     private final Map<String, String> entries;
 
     public FactualDictionary(File dictionaryFile) throws IOException, JSONException {
@@ -47,17 +61,97 @@ public class FactualDictionary {
             return Collections.emptyList();
         }
         String normalizedText = normalize(text);
-        List<String> matches = new ArrayList<>();
+        if (normalizedText.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Set<String> queryTokens = toTokenSet(normalizedText);
+        List<ScoredFact> scoredFacts = new ArrayList<>();
         for (Map.Entry<String, String> entry : entries.entrySet()) {
             String key = entry.getKey();
+            int score = 0;
             if (containsWholeWord(normalizedText, key)) {
-                matches.add(key + ": " + entry.getValue());
-                if (matches.size() >= maxFacts) {
-                    break;
-                }
+                score += WHOLE_KEY_MATCH_WEIGHT;
+            }
+            Set<String> keyTokens = toTokenSet(key);
+            score += countOverlap(queryTokens, keyTokens) * KEY_TOKEN_OVERLAP_WEIGHT;
+            Set<String> valueTokens = toTokenSet(normalize(entry.getValue()));
+            score += countOverlap(queryTokens, valueTokens) * VALUE_TOKEN_OVERLAP_WEIGHT;
+            if (score > 0) {
+                scoredFacts.add(new ScoredFact(key, entry.getValue(), score));
             }
         }
+        scoredFacts.sort(Comparator
+                .comparingInt((ScoredFact fact) -> fact.score)
+                .reversed()
+                .thenComparing(fact -> fact.key));
+        List<String> matches = new ArrayList<>(Math.min(maxFacts, scoredFacts.size()));
+        for (int i = 0; i < scoredFacts.size() && matches.size() < maxFacts; i++) {
+            ScoredFact fact = scoredFacts.get(i);
+            matches.add(fact.key + ": " + fact.value);
+        }
         return matches;
+    }
+
+    private static int countOverlap(Set<String> left, Set<String> right) {
+        int overlap = 0;
+        for (String token : left) {
+            if (right.contains(token)) {
+                overlap++;
+            }
+        }
+        return overlap;
+    }
+
+    private static Set<String> toTokenSet(String text) {
+        if (text == null || text.isEmpty()) {
+            return Collections.emptySet();
+        }
+        String[] parts = text.split("\\s+");
+        Set<String> tokens = new HashSet<>();
+        for (String part : parts) {
+            if (part.length() >= MIN_TOKEN_LENGTH) {
+                tokens.add(part);
+                addSingularVariants(tokens, part);
+            }
+        }
+        return tokens;
+    }
+
+    private static void addSingularVariants(Set<String> tokens, String token) {
+        if (token.endsWith("ies") && token.length() >= 4 && !INVARIANT_IES_WORDS.contains(token)) {
+            String stem = token.substring(0, token.length() - 3);
+            if (token.length() == 4) {
+                tokens.add(stem + "ie");
+            } else {
+                tokens.add(stem + "y");
+            }
+            return;
+        }
+        if (looksLikeEsPlural(token)) {
+            tokens.add(token.substring(0, token.length() - 2));
+            return;
+        }
+        if (looksLikeSimpleSPlural(token)) {
+            tokens.add(token.substring(0, token.length() - 1));
+        }
+    }
+
+    private static boolean looksLikeEsPlural(String token) {
+        return (token.endsWith("ses") && token.length() >= 4)
+                || (token.endsWith("xes") && token.length() >= 4)
+                || (token.endsWith("zes") && token.length() >= 4)
+                || (token.endsWith("ches") && token.length() >= 5)
+                || (token.endsWith("shes") && token.length() >= 5);
+    }
+
+    private static boolean looksLikeSimpleSPlural(String token) {
+        return token.length() >= 4
+                && token.endsWith("s")
+                && !token.endsWith("ss")
+                && !token.endsWith("us")
+                && !token.endsWith("is")
+                && !INVARIANT_AS_WORDS.contains(token)
+                && !INVARIANT_OS_WORDS.contains(token);
     }
 
     private static boolean containsWholeWord(String haystack, String needle) {
@@ -81,5 +175,17 @@ public class FactualDictionary {
                 .replaceAll("[^\\p{L}\\p{N}\\s]+", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
+    }
+
+    private static final class ScoredFact {
+        final String key;
+        final String value;
+        final int score;
+
+        ScoredFact(String key, String value, int score) {
+            this.key = key;
+            this.value = value;
+            this.score = score;
+        }
     }
 }

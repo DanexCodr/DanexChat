@@ -30,9 +30,10 @@ app/
    - `ModelManager` verifies `assets/smollm2/model_q4.onnx` and `tokenizer.json` are copied to internal storage and pass minimum size checks.
 
 2. **Inference engine initialization**
-   - `SmolLMInference` creates one ONNX Runtime session and tokenizer instance.
-   - It discovers whether the model export includes KV-cache tensors and whether `position_ids` are required.
-   - Generation options use fixed defaults (temperature/top-p/max tokens), with deterministic temperature set to `0`.
+    - `SmolLMInference` creates one ONNX Runtime session and tokenizer instance.
+    - It discovers whether the model export includes KV-cache tensors and whether `position_ids` are required.
+    - Generation options use fixed defaults (temperature/top-p/max tokens), with deterministic temperature set to `0`.
+    - A bundled WordNet-based factual dictionary (`assets/smollm2/wordnet.json`) is loaded at startup and injected into prompts as local grounding hints.
 
 3. **Prompt construction + generation**
    - Chat messages are transformed into a ChatML-style prompt with a fixed DanexChat system instruction.
@@ -84,7 +85,7 @@ The resulting APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-> **Note**: This project expects `app/src/main/assets/smollm2/model_q4.onnx` and `app/src/main/assets/smollm2/tokenizer.json` to be present when building.
+> **Note**: This project expects `app/src/main/assets/smollm2/model_q4.onnx`, `tokenizer.json`, and `wordnet.json` to be present when building.
 
 ## Dependencies
 
