@@ -325,8 +325,7 @@ public class SmolLMInference {
 
             @Override
             public void onComplete(String fullResponse) {
-                if (semanticResponseCache != null && lastUserText != null && fullResponse != null
-                        && !fullResponse.trim().isEmpty()) {
+                if (shouldCacheResponse(lastUserText, fullResponse)) {
                     semanticResponseCache.put(lastUserText, fullResponse);
                 }
                 callback.onComplete(fullResponse);
@@ -378,7 +377,9 @@ public class SmolLMInference {
         float[] scores = new float[olderCount];
         for (int i = 0; i < olderCount; i++) {
             float[] messageEmbedding = bertEncoder.encode(history.get(i).getContent());
-            scores[i] = BertTinyEncoder.cosineSimilarity(queryEmbedding, messageEmbedding);
+            scores[i] = messageEmbedding == null
+                    ? -1f
+                    : BertTinyEncoder.cosineSimilarity(queryEmbedding, messageEmbedding);
         }
         Integer[] order = new Integer[olderCount];
         for (int i = 0; i < olderCount; i++) order[i] = i;
@@ -402,6 +403,13 @@ public class SmolLMInference {
             }
         }
         return filtered.isEmpty() ? history : filtered;
+    }
+
+    private boolean shouldCacheResponse(String lastUserText, String fullResponse) {
+        return semanticResponseCache != null
+                && lastUserText != null
+                && fullResponse != null
+                && !fullResponse.trim().isEmpty();
     }
 
     private String tryBuildDeterministicFactualResponse(List<Message> history) {

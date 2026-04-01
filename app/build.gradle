@@ -33,6 +33,32 @@ android {
     }
 }
 
+def requiredAiAssets = [
+        "smollm2/model_q4.onnx",
+        "smollm2/tokenizer.json",
+        "smollm2/wordnet.json",
+        "bert_tiny/bert_tiny.onnx",
+        "bert_tiny/bert_vocab.txt"
+]
+
+tasks.register("verifyBundledAiAssets") {
+    doLast {
+        def assetsDir = file("src/main/assets")
+        def missing = requiredAiAssets.findAll { rel ->
+            !new File(assetsDir, rel).exists()
+        }
+        if (!missing.isEmpty()) {
+            throw new GradleException(
+                    "Missing required pre-bundled AI assets in app/src/main/assets: " + missing.join(", ")
+            )
+        }
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn("verifyBundledAiAssets")
+}
+
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'

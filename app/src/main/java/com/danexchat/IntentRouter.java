@@ -40,8 +40,11 @@ public class IntentRouter {
     public static final String ROUTE_GENERAL        = "general";
 
     // Minimum cosine similarity to trust the BERT classifier;
-    // queries below this threshold fall back to keyword matching.
+    // 0.25 is intentionally permissive because low-confidence classifications
+    // still route through keyword fallback immediately below this threshold.
     private static final float BERT_CONFIDENCE_THRESHOLD = 0.25f;
+    // Cosine similarity is in [-1, 1], so this guarantees first comparison wins.
+    private static final float INITIAL_BEST_SCORE = -2f;
 
     // Per-route generation parameters
     private static final float TEMP_ZERO     = 0.0f;
@@ -161,7 +164,7 @@ public class IntentRouter {
             return classifyWithKeywords(query);
         }
         String bestRoute = ROUTE_GENERAL;
-        float bestScore  = -2f;
+        float bestScore  = INITIAL_BEST_SCORE;
         for (String name : ROUTE_NAMES) {
             float[] proto = prototypeEmbeddings.get(name);
             if (proto == null) continue;

@@ -37,6 +37,8 @@ public class BertTinyEncoder {
     /** BERT-tiny hidden size (output embedding dimension). */
     static final int HIDDEN_SIZE = 128;
     private static final int MAX_SEQ_LEN = 64;
+    // Keep BERT lightweight to avoid CPU contention with SmolLM generation.
+    private static final int MAX_INTRA_OP_THREADS = 2;
 
     private static final String OUTPUT_LAST_HIDDEN = "last_hidden_state";
     private static final String INPUT_IDS          = "input_ids";
@@ -52,7 +54,7 @@ public class BertTinyEncoder {
             throws OrtException, IOException {
         env = OrtEnvironment.getEnvironment();
         OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
-        opts.setIntraOpNumThreads(Math.min(2, Runtime.getRuntime().availableProcessors()));
+        opts.setIntraOpNumThreads(Math.min(MAX_INTRA_OP_THREADS, Runtime.getRuntime().availableProcessors()));
         session = env.createSession(modelFile.getAbsolutePath(), opts);
         tokenizer = new BertTinyTokenizer(vocabFile);
         requiresTokenTypeIds = session.getInputNames().contains(TOKEN_TYPE_IDS);

@@ -85,7 +85,20 @@ The resulting APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-> **Note**: This project expects `app/src/main/assets/smollm2/model_q4.onnx`, `tokenizer.json`, and `wordnet.json` to be present when building.
+> **Note**: This project expects all model assets to be pre-bundled before APK build:
+> - `app/src/main/assets/smollm2/model_q4.onnx`
+> - `app/src/main/assets/smollm2/tokenizer.json`
+> - `app/src/main/assets/smollm2/wordnet.json`
+> - `app/src/main/assets/bert_tiny/bert_tiny.onnx`
+> - `app/src/main/assets/bert_tiny/bert_vocab.txt`
+>
+> You can generate the BERT-tiny files with:
+> ```bash
+> python training/export_bert_tiny.py --output-dir /tmp/bert_tiny_assets
+> mkdir -p app/src/main/assets/bert_tiny
+> cp /tmp/bert_tiny_assets/bert_tiny.onnx app/src/main/assets/bert_tiny/bert_tiny.onnx
+> cp /tmp/bert_tiny_assets/bert_vocab.txt app/src/main/assets/bert_tiny/bert_vocab.txt
+> ```
 
 ## Dependencies
 

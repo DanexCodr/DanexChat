@@ -190,17 +190,14 @@ public class MainActivity extends AppCompatActivity {
             }
 
             try {
-                // Try loading BERT-tiny encoder (optional; app works without it).
-                BertTinyEncoder encoder = null;
-                if (modelManager.hasBertFiles()) {
-                    try {
-                        encoder = new BertTinyEncoder(
-                                modelManager.getBertModelFile(),
-                                modelManager.getBertVocabFile());
-                    } catch (Exception e) {
-                        Log.w(TAG, "BERT-tiny unavailable, semantic routing disabled", e);
-                    }
+                if (!modelManager.hasBertFiles()) {
+                    throw new IllegalStateException(
+                            "Bundled BERT-tiny assets are missing in app/src/main/assets/bert_tiny/."
+                                    + " See README for required files and export steps.");
                 }
+                BertTinyEncoder encoder = new BertTinyEncoder(
+                        modelManager.getBertModelFile(),
+                        modelManager.getBertVocabFile());
                 final BertTinyEncoder finalEncoder = encoder;
                 final IntentRouter router = new IntentRouter(encoder);
 
