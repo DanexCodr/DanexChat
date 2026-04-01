@@ -4,10 +4,17 @@ import android.content.Context;
 import android.content.res.AssetManager;
 import android.util.Log;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Manages bundled SmolLM2 ONNX model and tokenizer assets.
@@ -27,10 +34,18 @@ public class ModelManager {
     private static final String ASSET_MODEL_PATH = "smollm2/" + MODEL_FILENAME;
     private static final String ASSET_TOKENIZER_PATH = "smollm2/" + TOKENIZER_FILENAME;
     private static final String ASSET_DICTIONARY_PATH = "smollm2/" + DICTIONARY_FILENAME;
+    private static final String REMOTE_DICTIONARY_URL =
+            "https://raw.githubusercontent.com/DanexCodr/DanexChat/main/app/src/main/assets/smollm2/dictionary_remote.json";
     private static final String MODEL_DIR          = "smollm2";
     private static final long MIN_MODEL_BYTES      = 50L * 1024L * 1024L; // expected ≈90MB
     private static final long MIN_TOKENIZER_BYTES  = 1024L;
     private static final long MIN_DICTIONARY_BYTES = 32L;
+    private static final long MAX_REMOTE_DICTIONARY_BYTES = 2L * 1024L * 1024L;
+    private static final long MIN_RICH_DICTIONARY_BYTES = 1024L;
+    private static final int REMOTE_CONNECT_TIMEOUT_MS = 4000;
+    private static final int REMOTE_READ_TIMEOUT_MS = 4000;
+    private static final long REMOTE_REFRESH_INTERVAL_MS = 24L * 60L * 60L * 1000L;
+    private static final int MIN_REMOTE_FACTS = 20;
 
     private final File modelDir;
     private final File modelFile;
@@ -84,6 +99,87 @@ public class ModelManager {
             } catch (IOException e) {
                 Log.w(TAG, "Bundled model asset was not available", e);
             }
+        }
+    }
+
+    /**
+     * Best-effort remote refresh for a richer factual dictionary.
+     * Falls back silently to bundled dictionary when offline/unavailable.
+     */
+    public void refreshDictionaryFromRemoteIfStale() {
+        if (!shouldRefreshRemoteDictionary()) {
+            return;
+        }
+        File parent = dictionaryFile.getParentFile();
+        if (parent == null) {
+            return;
+        }
+        File tmp = new File(parent, DICTIONARY_FILENAME + ".download.tmp");
+        try {
+            byte[] payload = downloadRemoteDictionary();
+            validateRemoteDictionaryPayload(payload);
+            try (FileOutputStream out = new FileOutputStream(tmp)) {
+                out.write(payload);
+            }
+            if (!tmp.renameTo(dictionaryFile)) {
+                java.nio.file.Files.move(tmp.toPath(), dictionaryFile.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            Log.i(TAG, "Refreshed factual dictionary from remote source");
+        } catch (IOException | JSONException e) {
+            Log.w(TAG, "Remote dictionary refresh skipped; using local dictionary", e);
+            if (tmp.exists() && !tmp.delete()) {
+                Log.w(TAG, "Failed to clean remote dictionary temp file: " + tmp.getAbsolutePath());
+            }
+        }
+    }
+
+    private boolean shouldRefreshRemoteDictionary() {
+        if (!hasValidSize(dictionaryFile, MIN_DICTIONARY_BYTES)) {
+            return true;
+        }
+        if (dictionaryFile.length() < MIN_RICH_DICTIONARY_BYTES) {
+            return true;
+        }
+        long ageMs = System.currentTimeMillis() - dictionaryFile.lastModified();
+        return ageMs >= REMOTE_REFRESH_INTERVAL_MS;
+    }
+
+    private byte[] downloadRemoteDictionary() throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) new URL(REMOTE_DICTIONARY_URL).openConnection();
+        connection.setRequestMethod("GET");
+        connection.setConnectTimeout(REMOTE_CONNECT_TIMEOUT_MS);
+        connection.setReadTimeout(REMOTE_READ_TIMEOUT_MS);
+        connection.setInstanceFollowRedirects(true);
+        connection.connect();
+        int code = connection.getResponseCode();
+        if (code != HttpURLConnection.HTTP_OK) {
+            throw new IOException("Unexpected dictionary response code: " + code);
+        }
+        try (InputStream in = connection.getInputStream();
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int count;
+            long total = 0;
+            while ((count = in.read(buffer)) != -1) {
+                total += count;
+                if (total > MAX_REMOTE_DICTIONARY_BYTES) {
+                    throw new IOException("Remote dictionary exceeds size limit");
+                }
+                out.write(buffer, 0, count);
+            }
+            return out.toByteArray();
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private static void validateRemoteDictionaryPayload(byte[] payload)
+            throws JSONException, IOException {
+        String json = new String(payload, StandardCharsets.UTF_8);
+        JSONObject root = new JSONObject(json);
+        if (root.length() < MIN_REMOTE_FACTS) {
+            throw new IOException("Remote dictionary has too few entries: " + root.length());
         }
     }
 

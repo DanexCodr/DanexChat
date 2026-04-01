@@ -183,6 +183,7 @@ public class MainActivity extends AppCompatActivity {
         updateSendEnabledForInput();
 
         bgExecutor.execute(() -> {
+            modelManager.refreshDictionaryFromRemoteIfStale();
             if (!modelManager.isReady()) {
                 runOnUiThread(() -> {
                     showStatus(getString(R.string.bundled_model_missing));
