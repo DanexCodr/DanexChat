@@ -51,10 +51,9 @@ public class MainActivity extends AppCompatActivity {
             "(?i)\\b(?:who|what|when|where|which|how many|define|today|day)\\b");
     private static final Pattern CREATIVE_ROUTE_PATTERN = Pattern.compile(
             "(?i)\\b(?:write|create|story|poem|imagine|brainstorm|roleplay)\\b");
-    private static final float FACTUAL_TEMPERATURE = 0.0f;
+    private static final float DETERMINISTIC_TEMPERATURE = 0.0f;
     private static final float FACTUAL_TOP_P = 0.82f;
     private static final int FACTUAL_MAX_NEW_TOKENS = 220;
-    private static final float CREATIVE_TEMPERATURE = 0.0f;
     private static final float CREATIVE_TOP_P = 0.94f;
     private static final int CREATIVE_MAX_NEW_TOKENS = 320;
     private static final int RECENT_CONTEXT_TOKEN_BUDGET = 1500;
@@ -503,12 +502,12 @@ public class MainActivity extends AppCompatActivity {
     private void applyGenerationOptionsForRoute(String resolvedRoute) {
         if ("factual".equals(resolvedRoute)) {
             smolLM.updateGenerationOptions(new SmolLMInference.GenerationOptions(
-                    FACTUAL_TEMPERATURE, FACTUAL_TOP_P, FACTUAL_MAX_NEW_TOKENS));
+                    DETERMINISTIC_TEMPERATURE, FACTUAL_TOP_P, FACTUAL_MAX_NEW_TOKENS));
             return;
         }
         if ("creative".equals(resolvedRoute)) {
             smolLM.updateGenerationOptions(new SmolLMInference.GenerationOptions(
-                    CREATIVE_TEMPERATURE, CREATIVE_TOP_P, CREATIVE_MAX_NEW_TOKENS));
+                    DETERMINISTIC_TEMPERATURE, CREATIVE_TOP_P, CREATIVE_MAX_NEW_TOKENS));
             return;
         }
         smolLM.updateGenerationOptions(SmolLMInference.GenerationOptions.defaults());
