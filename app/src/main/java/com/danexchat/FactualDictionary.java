@@ -21,6 +21,11 @@ import java.util.regex.Pattern;
 
 /**
  * Lightweight local WordNet-style dictionary used to ground factual prompts.
+ *
+ * Supports both keyword-based retrieval ({@link #findRelevantFacts}) and
+ * BERT-tiny semantic re-ranking ({@link #findSemanticFacts}) when a
+ * {@link BertTinyEncoder} is provided. Semantic results are cached across
+ * calls to amortize encoding cost over repeated queries.
  */
 public class FactualDictionary {
 
@@ -40,7 +45,15 @@ public class FactualDictionary {
     private static final Set<String> INVARIANT_OS_WORDS = new HashSet<>(
             java.util.Arrays.asList("chaos", "ethos", "pathos", "cosmos"));
     private static final Pattern LEADING_ARTICLES_PATTERN = Pattern.compile("^(?:(?:a|an|the)\\s+)+");
+    // Number of keyword-scored candidates passed to BERT re-ranker
+    private static final int SEMANTIC_RERANK_TOP_K = 20;
+    // Weight applied to cosine similarity boost on top of keyword score
+    private static final float SEMANTIC_BOOST_WEIGHT = 2.0f;
+
     private final Map<String, String> entries;
+    // Lazy embedding cache for dictionary entries; populated during semantic lookups.
+    // Access is not synchronized; callers (SmolLMInference.generate) are synchronized.
+    private final Map<String, float[]> embeddingCache = new java.util.HashMap<>();
 
     public FactualDictionary(File dictionaryFile) throws IOException, JSONException {
         if (dictionaryFile.length() > MAX_DICTIONARY_BYTES) {
@@ -95,6 +108,90 @@ public class FactualDictionary {
             matches.add(fact.key + ": " + fact.value);
         }
         return matches;
+    }
+
+    /**
+     * Retrieve facts semantically relevant to {@code text} by combining
+     * keyword scoring with BERT-tiny cosine similarity re-ranking.
+     *
+     * <p>Algorithm:
+     * <ol>
+     *   <li>Compute keyword score for every entry (same as {@link #findRelevantFacts}).</li>
+     *   <li>Take the top-{@value #SEMANTIC_RERANK_TOP_K} candidates by keyword score.</li>
+     *   <li>Re-rank those candidates using BERT cosine similarity between the
+     *       query embedding and each entry's cached key+value embedding.</li>
+     *   <li>Return the top {@code maxFacts} results by combined score.</li>
+     * </ol>
+     *
+     * <p>Falls back to {@link #findRelevantFacts} when {@code encoder} is {@code null}
+     * or when BERT encoding fails.
+     *
+     * <p>Entry embeddings are cached across calls to amortize the per-call cost.
+     */
+    public List<String> findSemanticFacts(String text, int maxFacts, BertTinyEncoder encoder) {
+        if (encoder == null) {
+            return findRelevantFacts(text, maxFacts);
+        }
+        if (text == null || text.trim().isEmpty() || maxFacts <= 0 || entries.isEmpty()) {
+            return Collections.emptyList();
+        }
+        String normalizedText = normalize(text);
+        if (normalizedText.isEmpty()) return Collections.emptyList();
+
+        // Step 1: keyword scoring
+        Set<String> queryTokens = toTokenSet(normalizedText);
+        List<ScoredFact> candidates = new ArrayList<>();
+        for (Map.Entry<String, String> entry : entries.entrySet()) {
+            String key = entry.getKey();
+            int score  = 0;
+            if (containsWholeWord(normalizedText, key)) score += WHOLE_KEY_MATCH_WEIGHT;
+            score += countOverlap(queryTokens, toTokenSet(key)) * KEY_TOKEN_OVERLAP_WEIGHT;
+            score += countOverlap(queryTokens, toTokenSet(normalize(entry.getValue())))
+                    * VALUE_TOKEN_OVERLAP_WEIGHT;
+            if (score > 0) {
+                candidates.add(new ScoredFact(key, entry.getValue(), score));
+            }
+        }
+        if (candidates.isEmpty()) return Collections.emptyList();
+        candidates.sort(Comparator.comparingInt((ScoredFact f) -> f.score).reversed());
+
+        // Step 2: BERT re-ranking on top-K candidates
+        int rerankCount = Math.min(SEMANTIC_RERANK_TOP_K, candidates.size());
+        float[] queryEmb = encoder.encode(text);
+        if (queryEmb != null) {
+            float[] combinedScores = new float[rerankCount];
+            for (int i = 0; i < rerankCount; i++) {
+                ScoredFact f = candidates.get(i);
+                float[] entryEmb = embeddingCache.get(f.key);
+                if (entryEmb == null) {
+                    entryEmb = encoder.encode(f.key + " " + f.value);
+                    if (entryEmb != null) {
+                        embeddingCache.put(f.key, entryEmb);
+                    }
+                }
+                float sim = BertTinyEncoder.cosineSimilarity(queryEmb, entryEmb);
+                combinedScores[i] = f.score + SEMANTIC_BOOST_WEIGHT * Math.max(0f, sim);
+            }
+            // Build index order sorted by combined score descending
+            Integer[] order = new Integer[rerankCount];
+            for (int i = 0; i < rerankCount; i++) order[i] = i;
+            java.util.Arrays.sort(order,
+                    (a, b) -> Float.compare(combinedScores[b], combinedScores[a]));
+            List<String> results = new ArrayList<>(Math.min(maxFacts, rerankCount));
+            for (int i = 0; i < rerankCount && results.size() < maxFacts; i++) {
+                ScoredFact f = candidates.get(order[i]);
+                results.add(f.key + ": " + f.value);
+            }
+            return results;
+        }
+
+        // BERT encode failed – fall back to keyword ranking
+        List<String> results = new ArrayList<>(Math.min(maxFacts, candidates.size()));
+        for (int i = 0; i < candidates.size() && results.size() < maxFacts; i++) {
+            ScoredFact f = candidates.get(i);
+            results.add(f.key + ": " + f.value);
+        }
+        return results;
     }
 
     public String findExactFact(String text) {

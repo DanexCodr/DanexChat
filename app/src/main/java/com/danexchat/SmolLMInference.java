@@ -78,6 +78,8 @@ public class SmolLMInference {
     private final OrtSession session;
     private final BPETokenizer tokenizer;
     private final FactualDictionary factualDictionary;
+    // Optional BERT-tiny encoder for semantic dictionary lookup; may be null.
+    private final BertTinyEncoder bertEncoder;
 
     // KV-cache tensor name lists (populated at load time)
     private final List<String> pastKeyNames = new ArrayList<>();
@@ -95,10 +97,24 @@ public class SmolLMInference {
 
     public SmolLMInference(File modelFile, File tokenizerFile)
             throws OrtException, IOException, org.json.JSONException {
-        this(modelFile, tokenizerFile, null);
+        this(modelFile, tokenizerFile, null, null);
     }
 
     public SmolLMInference(File modelFile, File tokenizerFile, File dictionaryFile)
+            throws OrtException, IOException, org.json.JSONException {
+        this(modelFile, tokenizerFile, dictionaryFile, null);
+    }
+
+    /**
+     * Full constructor that accepts an optional {@link BertTinyEncoder} for
+     * semantic dictionary fact retrieval. When {@code bertEncoder} is non-null,
+     * {@link FactualDictionary#findSemanticFacts} is used instead of the
+     * keyword-only {@link FactualDictionary#findRelevantFacts}.
+     *
+     * <p>Note: this class does not own {@code bertEncoder} and will not close it.
+     */
+    public SmolLMInference(File modelFile, File tokenizerFile, File dictionaryFile,
+                           BertTinyEncoder bertEncoder)
             throws OrtException, IOException, org.json.JSONException {
 
         env = OrtEnvironment.getEnvironment();
@@ -112,8 +128,10 @@ public class SmolLMInference {
         factualDictionary = dictionaryFile != null && dictionaryFile.exists()
                 ? new FactualDictionary(dictionaryFile)
                 : null;
+        this.bertEncoder = bertEncoder;
         discoverKVNames();
-        Log.i(TAG, "Loaded SmolLM2. KV-cache layers: " + pastKeyNames.size());
+        Log.i(TAG, "Loaded SmolLM2. KV-cache layers: " + pastKeyNames.size()
+                + ", semantic lookup: " + (bertEncoder != null));
     }
 
     private void discoverKVNames() throws OrtException {
@@ -336,10 +354,11 @@ public class SmolLMInference {
         if (lastUser == null) {
             return "";
         }
-        List<String> facts = factualDictionary.findRelevantFacts(
-                lastUser.getContent(),
-                MAX_DICTIONARY_FACTS
-        );
+        List<String> facts = bertEncoder != null
+                ? factualDictionary.findSemanticFacts(
+                        lastUser.getContent(), MAX_DICTIONARY_FACTS, bertEncoder)
+                : factualDictionary.findRelevantFacts(
+                        lastUser.getContent(), MAX_DICTIONARY_FACTS);
         if (facts.isEmpty()) {
             return "";
         }
