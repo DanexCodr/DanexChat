@@ -56,11 +56,16 @@ jobs:
         run: |
           mkdir -p .cache/bert_tiny app/src/main/assets/bert_tiny
 
+          # Guardrail against placeholder/invalid files while keeping threshold conservative.
+          BERT_MIN_BYTES=1024
+          BERT_MODEL_URL="https://huggingface.co/Xenova/bert-tiny-uncased/resolve/main/onnx/model.onnx"
+          BERT_VOCAB_URL="https://huggingface.co/prajjwal1/bert-tiny/resolve/main/vocab.txt"
+
           has_valid_bert_cache() {
             [ -s .cache/bert_tiny/bert_tiny.onnx ] \
               && [ -s .cache/bert_tiny/bert_vocab.txt ] \
-              && [ "$(wc -c < .cache/bert_tiny/bert_tiny.onnx)" -ge 1024 ] \
-              && [ "$(wc -c < .cache/bert_tiny/bert_vocab.txt)" -ge 1024 ]
+              && [ "$(wc -c < .cache/bert_tiny/bert_tiny.onnx)" -ge "$BERT_MIN_BYTES" ] \
+              && [ "$(wc -c < .cache/bert_tiny/bert_vocab.txt)" -ge "$BERT_MIN_BYTES" ]
           }
 
           download_file() {
@@ -78,16 +83,16 @@ jobs:
             echo "Using cached BERT-tiny assets"
           else
             download_file .cache/bert_tiny/bert_tiny.onnx \
-              "https://huggingface.co/Xenova/bert-tiny-uncased/resolve/main/onnx/model.onnx" \
-              || echo "Error: Failed to download bert_tiny.onnx"
+              "$BERT_MODEL_URL" \
+              || echo "Error: Failed to download bert_tiny.onnx from $BERT_MODEL_URL"
 
             download_file .cache/bert_tiny/bert_vocab.txt \
-              "https://huggingface.co/prajjwal1/bert-tiny/resolve/main/vocab.txt" \
-              || echo "Error: Failed to download bert_vocab.txt"
+              "$BERT_VOCAB_URL" \
+              || echo "Error: Failed to download bert_vocab.txt from $BERT_VOCAB_URL"
           fi
 
           if ! has_valid_bert_cache; then
-            echo "Error: BERT-tiny assets missing or invalid after cache check and download attempts; refusing to build APK without valid assets"
+            echo "Error: BERT-tiny assets missing or invalid; cannot build APK"
             exit 1
           fi
 
@@ -95,8 +100,8 @@ jobs:
           cp .cache/bert_tiny/bert_vocab.txt app/src/main/assets/bert_tiny/bert_vocab.txt
           test -s app/src/main/assets/bert_tiny/bert_tiny.onnx || { echo "Error: bert_tiny.onnx missing or empty"; exit 1; }
           test -s app/src/main/assets/bert_tiny/bert_vocab.txt || { echo "Error: bert_vocab.txt missing or empty"; exit 1; }
-          test "$(wc -c < app/src/main/assets/bert_tiny/bert_tiny.onnx)" -ge 1024 || { echo "Error: bert_tiny.onnx too small"; exit 1; }
-          test "$(wc -c < app/src/main/assets/bert_tiny/bert_vocab.txt)" -ge 1024 || { echo "Error: bert_vocab.txt too small"; exit 1; }
+          test "$(wc -c < app/src/main/assets/bert_tiny/bert_tiny.onnx)" -ge "$BERT_MIN_BYTES" || { echo "Error: bert_tiny.onnx too small"; exit 1; }
+          test "$(wc -c < app/src/main/assets/bert_tiny/bert_vocab.txt)" -ge "$BERT_MIN_BYTES" || { echo "Error: bert_vocab.txt too small"; exit 1; }
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
