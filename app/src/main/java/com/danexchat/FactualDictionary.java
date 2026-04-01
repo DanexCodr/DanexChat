@@ -23,6 +23,9 @@ import java.util.TreeMap;
  */
 public class FactualDictionary {
 
+    static final String[] DEFINITION_PREFIXES = {
+            "what is ", "what are ", "who is ", "who are ", "define ", "tell me about "
+    };
     private static final long MAX_DICTIONARY_BYTES = 1024L * 1024L;
     // Prefer direct key hits, then semantic-ish overlap on key terms, then weaker overlap on definitions.
     private static final int WHOLE_KEY_MATCH_WEIGHT = 4;
@@ -90,6 +93,32 @@ public class FactualDictionary {
             matches.add(fact.key + ": " + fact.value);
         }
         return matches;
+    }
+
+    public String findExactFact(String text) {
+        if (text == null || text.trim().isEmpty() || entries.isEmpty()) {
+            return null;
+        }
+        String normalizedText = normalize(text);
+        if (normalizedText.isEmpty()) {
+            return null;
+        }
+        String subject = extractDefinitionSubject(normalizedText);
+        if (subject == null) return null;
+        String fact = entries.get(subject);
+        if (fact != null) {
+            return fact;
+        }
+        Set<String> subjectVariants = new HashSet<>();
+        subjectVariants.add(subject);
+        addSingularVariants(subjectVariants, subject);
+        for (String candidate : subjectVariants) {
+            fact = entries.get(candidate);
+            if (fact != null) {
+                return fact;
+            }
+        }
+        return null;
     }
 
     private static int countOverlap(Set<String> left, Set<String> right) {
@@ -175,6 +204,29 @@ public class FactualDictionary {
                 .replaceAll("[^\\p{L}\\p{N}\\s]+", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
+    }
+
+    private static String extractDefinitionSubject(String normalizedText) {
+        for (String prefix : DEFINITION_PREFIXES) {
+            if (!normalizedText.startsWith(prefix)) continue;
+            String subject = normalizedText.substring(prefix.length()).trim();
+            boolean removed;
+            do {
+                removed = false;
+                if (subject.startsWith("a ")) {
+                    subject = subject.substring(2).trim();
+                    removed = true;
+                } else if (subject.startsWith("an ")) {
+                    subject = subject.substring(3).trim();
+                    removed = true;
+                } else if (subject.startsWith("the ")) {
+                    subject = subject.substring(4).trim();
+                    removed = true;
+                }
+            } while (removed);
+            return subject.isEmpty() ? null : subject;
+        }
+        return null;
     }
 
     private static final class ScoredFact {

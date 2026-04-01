@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -266,6 +267,11 @@ public class SmolLMInference {
             Map<String, String> promptTags,
             StreamCallback callback
     ) throws Exception {
+        String deterministicFactualResponse = tryBuildDeterministicFactualResponse(history);
+        if (deterministicFactualResponse != null) {
+            callback.onComplete(deterministicFactualResponse);
+            return;
+        }
         String prompt = buildPrompt(history, summary, archivedSummary, promptTags);
         long[] promptIds = tokenizer.encodeWithSpecialTokens(prompt);
 
@@ -278,6 +284,43 @@ public class SmolLMInference {
         } else {
             generateNoKVCache(promptIds, responseBuilder, callback);
         }
+    }
+
+    private String tryBuildDeterministicFactualResponse(List<Message> history) {
+        if (factualDictionary == null || history == null || history.isEmpty()) {
+            return null;
+        }
+        Message lastUser = null;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            Message msg = history.get(i);
+            if (msg.isUser()) {
+                lastUser = msg;
+                break;
+            }
+        }
+        if (lastUser == null) {
+            return null;
+        }
+        String userText = lastUser.getContent();
+        if (!isDefinitionStyleQuestion(userText)) {
+            return null;
+        }
+        String exactFact = factualDictionary.findExactFact(userText);
+        return exactFact == null || exactFact.trim().isEmpty() ? null : exactFact.trim();
+    }
+
+    private static boolean isDefinitionStyleQuestion(String text) {
+        if (text == null) return false;
+        String normalized = text.trim().toLowerCase(Locale.ROOT);
+        while (normalized.endsWith("?")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+        }
+        for (String prefix : FactualDictionary.DEFINITION_PREFIXES) {
+            if (normalized.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isMissingPositionIdsError(Exception e) {
