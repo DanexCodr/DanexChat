@@ -32,11 +32,11 @@ app/
 2. **Inference engine initialization**
    - `SmolLMInference` creates one ONNX Runtime session and tokenizer instance.
    - It discovers whether the model export includes KV-cache tensors and whether `position_ids` are required.
-   - Generation options use fixed defaults (temperature/top-p/max tokens).
+   - Generation options use fixed defaults (temperature/top-p/max tokens), with deterministic temperature set to `0`.
 
 3. **Prompt construction + generation**
    - Chat messages are transformed into a ChatML-style prompt with a fixed DanexChat system instruction.
-   - During generation, decoding applies repetition controls and sampling (`temperature`, `top-p`) and streams token pieces back to UI incrementally.
+   - During generation, decoding applies repetition controls and top-p filtering with deterministic token choice (temperature `0`) and streams token pieces back to UI incrementally.
    - A fallback path retries with `position_ids` if the runtime reports missing input.
 
 4. **Conversation management**
