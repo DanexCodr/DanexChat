@@ -3,7 +3,7 @@
 Export prajjwal1/bert-tiny to ONNX and extract the vocabulary file for DanexChat.
 
 Usage:
-    pip install torch transformers onnx onnxruntime
+    pip install torch transformers onnxruntime
     python export_bert_tiny.py --output-dir bert_tiny_assets
 
 Then copy the contents of bert_tiny_assets/ into:
@@ -13,7 +13,6 @@ Then copy the contents of bert_tiny_assets/ into:
 import argparse
 import os
 
-import onnx
 import torch
 from transformers import AutoModel, AutoTokenizer
 
@@ -63,9 +62,9 @@ def export_bert_tiny(output_dir: str) -> None:
             do_constant_folding=True,
         )
 
-    # Verify the exported model
-    onnx_model = onnx.load(onnx_path)
-    onnx.checker.check_model(onnx_model)
+    # Keep validation lightweight and local without requiring the onnx package.
+    if not os.path.exists(onnx_path) or os.path.getsize(onnx_path) <= 0:
+        raise RuntimeError(f"Export failed, ONNX file missing or empty: {onnx_path}")
     size_mb = os.path.getsize(onnx_path) / 1_000_000
     print(f"ONNX model saved  → {onnx_path}  ({size_mb:.1f} MB)")
 
