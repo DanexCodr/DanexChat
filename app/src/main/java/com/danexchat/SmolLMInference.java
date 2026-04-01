@@ -66,6 +66,10 @@ public class SmolLMInference {
     private static final float DEFAULT_TOP_P = 0.9f;
     private static final int DEFAULT_MAX_NEW_TOKENS = 256;
     private static final int MAX_DICTIONARY_FACTS = 3;
+    private static final int HISTORY_RELEVANCE_MIN_SIZE = 8;
+    private static final int HISTORY_RELEVANCE_RECENT_KEEP = 4;
+    private static final int HISTORY_RELEVANCE_MAX_OLDER = 6;
+    private static final float HISTORY_RELEVANCE_MIN_SCORE = 0.15f;
     private static final String TAG_DATE = "$date";
     private static final String TAG_TIME = "$time";
     private static final String TAG_DATETIME = "$datetime";
@@ -80,6 +84,7 @@ public class SmolLMInference {
     private final FactualDictionary factualDictionary;
     // Optional BERT-tiny encoder for semantic dictionary lookup; may be null.
     private final BertTinyEncoder bertEncoder;
+    private final SemanticResponseCache semanticResponseCache;
 
     // KV-cache tensor name lists (populated at load time)
     private final List<String> pastKeyNames = new ArrayList<>();
@@ -129,6 +134,7 @@ public class SmolLMInference {
                 ? new FactualDictionary(dictionaryFile)
                 : null;
         this.bertEncoder = bertEncoder;
+        this.semanticResponseCache = bertEncoder != null ? new SemanticResponseCache(bertEncoder) : null;
         discoverKVNames();
         Log.i(TAG, "Loaded SmolLM2. KV-cache layers: " + pastKeyNames.size()
                 + ", semantic lookup: " + (bertEncoder != null));
@@ -277,6 +283,12 @@ public class SmolLMInference {
         }
     }
 
+    public synchronized void clearResponseCache() {
+        if (semanticResponseCache != null) {
+            semanticResponseCache.clear();
+        }
+    }
+
     private void generateInternal(
             List<Message> history,
             String summary,
@@ -284,23 +296,112 @@ public class SmolLMInference {
             Map<String, String> promptTags,
             StreamCallback callback
     ) throws Exception {
+        String lastUserText = extractLastUserText(history);
         String deterministicFactualResponse = tryBuildDeterministicFactualResponse(history);
         if (deterministicFactualResponse != null) {
             callback.onComplete(deterministicFactualResponse);
             return;
         }
-        String prompt = buildPrompt(history, summary, archivedSummary, promptTags);
+        if (semanticResponseCache != null && lastUserText != null) {
+            String cached = semanticResponseCache.find(lastUserText);
+            if (cached != null) {
+                callback.onComplete(cached);
+                return;
+            }
+        }
+        List<Message> effectiveHistory = selectRelevantHistory(history, lastUserText);
+        String prompt = buildPrompt(effectiveHistory, summary, archivedSummary, promptTags);
         long[] promptIds = tokenizer.encodeWithSpecialTokens(prompt);
 
         // Trim to max context with an attention sink prefix + rolling recent window.
         promptIds = trimPromptWithAttentionSink(promptIds);
 
         StringBuilder responseBuilder = new StringBuilder();
+        StreamCallback wrappedCallback = new StreamCallback() {
+            @Override
+            public void onToken(String tokenText) {
+                callback.onToken(tokenText);
+            }
+
+            @Override
+            public void onComplete(String fullResponse) {
+                if (semanticResponseCache != null && lastUserText != null && fullResponse != null
+                        && !fullResponse.trim().isEmpty()) {
+                    semanticResponseCache.put(lastUserText, fullResponse);
+                }
+                callback.onComplete(fullResponse);
+            }
+
+            @Override
+            public void onError(Exception e) {
+                callback.onError(e);
+            }
+        };
         if (hasKVCache) {
-            generateWithKVCache(promptIds, responseBuilder, callback);
+            generateWithKVCache(promptIds, responseBuilder, wrappedCallback);
         } else {
-            generateNoKVCache(promptIds, responseBuilder, callback);
+            generateNoKVCache(promptIds, responseBuilder, wrappedCallback);
         }
+    }
+
+    private static String extractLastUserText(List<Message> history) {
+        if (history == null) return null;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            Message msg = history.get(i);
+            if (msg.isUser()) {
+                return msg.getContent();
+            }
+        }
+        return null;
+    }
+
+    private List<Message> selectRelevantHistory(List<Message> history, String lastUserText) {
+        if (bertEncoder == null
+                || history == null
+                || history.size() <= HISTORY_RELEVANCE_MIN_SIZE
+                || lastUserText == null
+                || lastUserText.trim().isEmpty()) {
+            return history;
+        }
+        float[] queryEmbedding = bertEncoder.encode(lastUserText);
+        if (queryEmbedding == null) {
+            return history;
+        }
+
+        int total = history.size();
+        int recentStart = Math.max(0, total - HISTORY_RELEVANCE_RECENT_KEEP);
+        int olderCount = recentStart;
+        if (olderCount <= 0) {
+            return history;
+        }
+
+        float[] scores = new float[olderCount];
+        for (int i = 0; i < olderCount; i++) {
+            float[] messageEmbedding = bertEncoder.encode(history.get(i).getContent());
+            scores[i] = BertTinyEncoder.cosineSimilarity(queryEmbedding, messageEmbedding);
+        }
+        Integer[] order = new Integer[olderCount];
+        for (int i = 0; i < olderCount; i++) order[i] = i;
+        Arrays.sort(order, (a, b) -> Float.compare(scores[b], scores[a]));
+
+        Set<Integer> keep = new HashSet<>();
+        int selected = 0;
+        for (int idx : order) {
+            if (selected >= HISTORY_RELEVANCE_MAX_OLDER) break;
+            if (scores[idx] < HISTORY_RELEVANCE_MIN_SCORE) break;
+            keep.add(idx);
+            selected++;
+        }
+        for (int i = recentStart; i < total; i++) {
+            keep.add(i);
+        }
+        List<Message> filtered = new ArrayList<>();
+        for (int i = 0; i < total; i++) {
+            if (keep.contains(i)) {
+                filtered.add(history.get(i));
+            }
+        }
+        return filtered.isEmpty() ? history : filtered;
     }
 
     private String tryBuildDeterministicFactualResponse(List<Message> history) {

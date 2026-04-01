@@ -244,7 +244,8 @@ public class MainActivity extends AppCompatActivity {
         String text = inputField.getText().toString().trim();
         if (text.isEmpty() || smolLM == null) return;
 
-        if (shouldResetConversationContext(conversationHistory, text)) {
+        boolean didResetContext = shouldResetConversationContext(conversationHistory, text);
+        if (didResetContext) {
             Log.d(TAG, "Resetting model conversation context for detected topic switch");
             conversationHistory.clear();
             conversationSummary = "";
@@ -273,6 +274,9 @@ public class MainActivity extends AppCompatActivity {
         updateSendEnabledForInput();
         final String finalModelText = modelText;
         bgExecutor.execute(() -> {
+            if (didResetContext) {
+                smolLM.clearResponseCache();
+            }
             // Intent routing runs on the background thread so that BERT-tiny
             // inference (when the encoder is available) does not block the UI.
             IntentRouter.RouteResult routeResult = intentRouter.route(finalModelText);
