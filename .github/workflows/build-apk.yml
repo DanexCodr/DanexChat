@@ -78,14 +78,16 @@ jobs:
             echo "Using cached BERT-tiny assets"
           else
             download_file .cache/bert_tiny/bert_tiny.onnx \
-              "https://huggingface.co/Xenova/bert-tiny-uncased/resolve/main/onnx/model.onnx"
+              "https://huggingface.co/Xenova/bert-tiny-uncased/resolve/main/onnx/model.onnx" \
+              || echo "Error: Failed to download bert_tiny.onnx"
 
             download_file .cache/bert_tiny/bert_vocab.txt \
-              "https://huggingface.co/prajjwal1/bert-tiny/resolve/main/vocab.txt"
+              "https://huggingface.co/prajjwal1/bert-tiny/resolve/main/vocab.txt" \
+              || echo "Error: Failed to download bert_vocab.txt"
           fi
 
           if ! has_valid_bert_cache; then
-            echo "Error: BERT-tiny assets missing or invalid in cache; refusing to build APK without real bert_tiny assets"
+            echo "Error: BERT-tiny assets missing or invalid after cache check and download attempts; refusing to build APK without valid assets"
             exit 1
           fi
 
