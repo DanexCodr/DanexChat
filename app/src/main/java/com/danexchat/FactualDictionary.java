@@ -28,6 +28,8 @@ public class FactualDictionary {
     private static final int KEY_TOKEN_OVERLAP_WEIGHT = 3;
     private static final int VALUE_TOKEN_OVERLAP_WEIGHT = 1;
     private static final int MIN_TOKEN_LENGTH = 2;
+    private static final Set<String> INVARIANT_IES_WORDS = new HashSet<>(
+            java.util.Arrays.asList("species", "series"));
     private final Map<String, String> entries;
 
     public FactualDictionary(File dictionaryFile) throws IOException, JSONException {
@@ -111,8 +113,9 @@ public class FactualDictionary {
     }
 
     private static void addSingularVariants(Set<String> tokens, String token) {
-        if (token.endsWith("ies") && token.length() >= 4) {
-            tokens.add(token.substring(0, token.length() - 3) + "y");
+        if (token.endsWith("ies") && token.length() >= 5 && !INVARIANT_IES_WORDS.contains(token)) {
+            String stem = token.substring(0, token.length() - 3);
+            tokens.add(stem + "y");
             return;
         }
         if (looksLikeEsPlural(token)) {
@@ -125,20 +128,21 @@ public class FactualDictionary {
     }
 
     private static boolean looksLikeEsPlural(String token) {
-        return token.length() >= 4
-                && (token.endsWith("ses")
-                || token.endsWith("xes")
-                || token.endsWith("zes")
-                || token.endsWith("ches")
-                || token.endsWith("shes"));
+        return (token.endsWith("ses") && token.length() >= 4)
+                || (token.endsWith("xes") && token.length() >= 4)
+                || (token.endsWith("zes") && token.length() >= 4)
+                || (token.endsWith("ches") && token.length() >= 5)
+                || (token.endsWith("shes") && token.length() >= 5);
     }
 
     private static boolean looksLikeSimpleSPlural(String token) {
-        return token.length() >= 3
+        return token.length() >= 4
                 && token.endsWith("s")
                 && !token.endsWith("ss")
                 && !token.endsWith("us")
-                && !token.endsWith("is");
+                && !token.endsWith("is")
+                && !token.endsWith("as")
+                && !token.endsWith("os");
     }
 
     private static boolean containsWholeWord(String haystack, String needle) {
