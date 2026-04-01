@@ -17,6 +17,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 
 /**
  * Lightweight local WordNet-style dictionary used to ground factual prompts.
@@ -38,6 +39,7 @@ public class FactualDictionary {
             java.util.Arrays.asList("atlas", "canvas", "bias", "gas", "yes"));
     private static final Set<String> INVARIANT_OS_WORDS = new HashSet<>(
             java.util.Arrays.asList("chaos", "ethos", "pathos", "cosmos"));
+    private static final Pattern LEADING_ARTICLES_PATTERN = Pattern.compile("^(?:(?:a|an|the)\\s+)+");
     private final Map<String, String> entries;
 
     public FactualDictionary(File dictionaryFile) throws IOException, JSONException {
@@ -209,21 +211,10 @@ public class FactualDictionary {
     private static String extractDefinitionSubject(String normalizedText) {
         for (String prefix : DEFINITION_PREFIXES) {
             if (!normalizedText.startsWith(prefix)) continue;
-            String subject = normalizedText.substring(prefix.length()).trim();
-            boolean removed;
-            do {
-                removed = false;
-                if (subject.startsWith("a ")) {
-                    subject = subject.substring(2).trim();
-                    removed = true;
-                } else if (subject.startsWith("an ")) {
-                    subject = subject.substring(3).trim();
-                    removed = true;
-                } else if (subject.startsWith("the ")) {
-                    subject = subject.substring(4).trim();
-                    removed = true;
-                }
-            } while (removed);
+            String subject = LEADING_ARTICLES_PATTERN
+                    .matcher(normalizedText.substring(prefix.length()))
+                    .replaceFirst("")
+                    .trim();
             return subject.isEmpty() ? null : subject;
         }
         return null;

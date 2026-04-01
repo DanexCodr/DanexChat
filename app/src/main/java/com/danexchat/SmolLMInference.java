@@ -19,7 +19,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -301,26 +300,8 @@ public class SmolLMInference {
         if (lastUser == null) {
             return null;
         }
-        String userText = lastUser.getContent();
-        if (!isDefinitionStyleQuestion(userText)) {
-            return null;
-        }
-        String exactFact = factualDictionary.findExactFact(userText);
+        String exactFact = factualDictionary.findExactFact(lastUser.getContent());
         return exactFact == null || exactFact.trim().isEmpty() ? null : exactFact.trim();
-    }
-
-    private static boolean isDefinitionStyleQuestion(String text) {
-        if (text == null) return false;
-        String normalized = text.trim().toLowerCase(Locale.ROOT);
-        while (normalized.endsWith("?")) {
-            normalized = normalized.substring(0, normalized.length() - 1).trim();
-        }
-        for (String prefix : FactualDictionary.DEFINITION_PREFIXES) {
-            if (normalized.startsWith(prefix)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static boolean isMissingPositionIdsError(Exception e) {
