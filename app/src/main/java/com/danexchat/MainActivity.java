@@ -47,15 +47,6 @@ public class MainActivity extends AppCompatActivity {
     private static final Pattern TOPIC_TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{L}\\p{N}]+");
     private static final Pattern DEFINITION_ARTICLE_PATTERN = Pattern.compile("^(a|an|the)\\s+");
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
-    private static final Pattern FACTUAL_ROUTE_PATTERN = Pattern.compile(
-            "(?i)\\b(?:who|what|when|where|which|how many|define|today|day)\\b");
-    private static final Pattern CREATIVE_ROUTE_PATTERN = Pattern.compile(
-            "(?i)\\b(?:write|create|story|poem|imagine|brainstorm|roleplay)\\b");
-    private static final float DETERMINISTIC_TEMPERATURE = 0.0f;
-    private static final float FACTUAL_TOP_P = 0.82f;
-    private static final int FACTUAL_MAX_NEW_TOKENS = 220;
-    private static final float CREATIVE_TOP_P = 0.94f;
-    private static final int CREATIVE_MAX_NEW_TOKENS = 320;
     private static final int RECENT_CONTEXT_TOKEN_BUDGET = 1500;
     private static final int SUMMARY_TOKEN_BUDGET = 300;
     private static final int ARCHIVE_TOKEN_BUDGET = 220;
@@ -88,6 +79,9 @@ public class MainActivity extends AppCompatActivity {
     private String archivedSummary = "";
     private ModelManager modelManager;
     private SmolLMInference smolLM;
+    private BertTinyEncoder bertEncoder;
+    // keyword-only fallback until BERT-tiny finishes loading
+    private volatile IntentRouter intentRouter = new IntentRouter(null);
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
 
     private volatile boolean isGenerating = false;
@@ -110,6 +104,7 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         bgExecutor.shutdownNow();
         if (smolLM != null) smolLM.close();
+        if (bertEncoder != null) bertEncoder.close();
     }
 
     private void bindViews() {
@@ -195,11 +190,25 @@ public class MainActivity extends AppCompatActivity {
             }
 
             try {
+                if (!modelManager.hasBertFiles()) {
+                    throw new IllegalStateException(
+                            "Bundled BERT-tiny assets are missing in app/src/main/assets/bert_tiny/."
+                                    + " See README for required files and export steps.");
+                }
+                BertTinyEncoder encoder = new BertTinyEncoder(
+                        modelManager.getBertModelFile(),
+                        modelManager.getBertVocabFile());
+                final BertTinyEncoder finalEncoder = encoder;
+                final IntentRouter router = new IntentRouter(encoder);
+
                 SmolLMInference inference = new SmolLMInference(
                         modelManager.getModelFile(),
                         modelManager.getTokenizerFile(),
-                        modelManager.getDictionaryFile());
+                        modelManager.getDictionaryFile(),
+                        encoder);
                 runOnUiThread(() -> {
+                    bertEncoder  = finalEncoder;
+                    intentRouter = router;
                     smolLM = inference;
                     smolLM.updateGenerationOptions(SmolLMInference.GenerationOptions.defaults());
                     hideStatus();
@@ -232,7 +241,8 @@ public class MainActivity extends AppCompatActivity {
         String text = inputField.getText().toString().trim();
         if (text.isEmpty() || smolLM == null) return;
 
-        if (shouldResetConversationContext(conversationHistory, text)) {
+        boolean didResetContext = shouldResetConversationContext(conversationHistory, text);
+        if (didResetContext) {
             Log.d(TAG, "Resetting model conversation context for detected topic switch");
             conversationHistory.clear();
             conversationSummary = "";
@@ -240,8 +250,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         String modelText = resolveAmbiguityAndSpecifier(conversationHistory, text);
-        String routeHint = determineRouteHint(modelText);
-        applyGenerationOptionsForRoute(routeHint);
         inputField.setText("");
 
         Message userMsg = new Message(Message.ROLE_USER, text);
@@ -261,48 +269,57 @@ public class MainActivity extends AppCompatActivity {
 
         isGenerating = true;
         updateSendEnabledForInput();
-        Map<String, String> promptTags = buildPromptTags(routeHint);
-        bgExecutor.execute(() ->
-                smolLM.generate(history, conversationSummary, archivedSummary, promptTags, new SmolLMInference.StreamCallback() {
-                    @Override
-                    public void onToken(String piece) {
-                        runOnUiThread(() -> {
-                            aiMsg.setContent(aiMsg.getContent() + piece);
-                            int pos = messages.indexOf(aiMsg);
-                            if (pos >= 0) chatAdapter.notifyItemChanged(pos);
-                        });
-                    }
-
-                    @Override
-                    public void onComplete(String fullResponse) {
-                        runOnUiThread(() -> {
-                            if (!fullResponse.equals(aiMsg.getContent())) {
-                                aiMsg.setContent(fullResponse);
+        final String finalModelText = modelText;
+        bgExecutor.execute(() -> {
+            if (didResetContext) {
+                smolLM.clearResponseCache();
+            }
+            // Intent routing runs on the background thread so that BERT-tiny
+            // inference (when the encoder is available) does not block the UI.
+            IntentRouter.RouteResult routeResult = intentRouter.route(finalModelText);
+            smolLM.updateGenerationOptions(routeResult.options);
+            Map<String, String> promptTags = buildPromptTags(routeResult.route);
+            smolLM.generate(history, conversationSummary, archivedSummary, promptTags,
+                    new SmolLMInference.StreamCallback() {
+                        @Override
+                        public void onToken(String piece) {
+                            runOnUiThread(() -> {
+                                aiMsg.setContent(aiMsg.getContent() + piece);
                                 int pos = messages.indexOf(aiMsg);
                                 if (pos >= 0) chatAdapter.notifyItemChanged(pos);
-                            }
-                            if (conversationHistory.isEmpty()
-                                    || conversationHistory.get(conversationHistory.size() - 1).isUser()) {
-                                conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
-                                compactConversationHistoryIfNeeded();
-                            }
-                            isGenerating = false;
-                            updateSendEnabledForInput();
-                        });
-                    }
+                            });
+                        }
 
-                    @Override
-                    public void onError(Exception e) {
-                        runOnUiThread(() -> {
-                            aiMsg.setContent(getString(R.string.error_prefix, e.getMessage()));
-                            int pos = messages.indexOf(aiMsg);
-                            if (pos >= 0) chatAdapter.notifyItemChanged(pos);
-                            isGenerating = false;
-                            updateSendEnabledForInput();
-                        });
-                    }
-                })
-        );
+                        @Override
+                        public void onComplete(String fullResponse) {
+                            runOnUiThread(() -> {
+                                if (!fullResponse.equals(aiMsg.getContent())) {
+                                    aiMsg.setContent(fullResponse);
+                                    int pos = messages.indexOf(aiMsg);
+                                    if (pos >= 0) chatAdapter.notifyItemChanged(pos);
+                                }
+                                if (conversationHistory.isEmpty()
+                                        || conversationHistory.get(conversationHistory.size() - 1).isUser()) {
+                                    conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
+                                    compactConversationHistoryIfNeeded();
+                                }
+                                isGenerating = false;
+                                updateSendEnabledForInput();
+                            });
+                        }
+
+                        @Override
+                        public void onError(Exception e) {
+                            runOnUiThread(() -> {
+                                aiMsg.setContent(getString(R.string.error_prefix, e.getMessage()));
+                                int pos = messages.indexOf(aiMsg);
+                                if (pos >= 0) chatAdapter.notifyItemChanged(pos);
+                                isGenerating = false;
+                                updateSendEnabledForInput();
+                            });
+                        }
+                    });
+        });
     }
 
     private void addMessage(Message msg) {
@@ -487,30 +504,6 @@ public class MainActivity extends AppCompatActivity {
                 .replace('\r', ' ')
                 .replace('\t', ' ')
                 .trim();
-    }
-
-    private String determineRouteHint(String userText) {
-        if (FACTUAL_ROUTE_PATTERN.matcher(userText).find()) {
-            return "factual";
-        }
-        if (CREATIVE_ROUTE_PATTERN.matcher(userText).find()) {
-            return "creative";
-        }
-        return "general";
-    }
-
-    private void applyGenerationOptionsForRoute(String resolvedRoute) {
-        if ("factual".equals(resolvedRoute)) {
-            smolLM.updateGenerationOptions(new SmolLMInference.GenerationOptions(
-                    DETERMINISTIC_TEMPERATURE, FACTUAL_TOP_P, FACTUAL_MAX_NEW_TOKENS));
-            return;
-        }
-        if ("creative".equals(resolvedRoute)) {
-            smolLM.updateGenerationOptions(new SmolLMInference.GenerationOptions(
-                    DETERMINISTIC_TEMPERATURE, CREATIVE_TOP_P, CREATIVE_MAX_NEW_TOKENS));
-            return;
-        }
-        smolLM.updateGenerationOptions(SmolLMInference.GenerationOptions.defaults());
     }
 
     private Map<String, String> buildPromptTags(String routeHint) {
