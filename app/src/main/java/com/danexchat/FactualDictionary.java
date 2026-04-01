@@ -17,12 +17,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 
 /**
  * Lightweight local WordNet-style dictionary used to ground factual prompts.
  */
 public class FactualDictionary {
 
+    static final String[] DEFINITION_PREFIXES = {
+            "what is ", "what are ", "who is ", "who are ", "define ", "tell me about "
+    };
     private static final long MAX_DICTIONARY_BYTES = 1024L * 1024L;
     // Prefer direct key hits, then semantic-ish overlap on key terms, then weaker overlap on definitions.
     private static final int WHOLE_KEY_MATCH_WEIGHT = 4;
@@ -35,6 +39,7 @@ public class FactualDictionary {
             java.util.Arrays.asList("atlas", "canvas", "bias", "gas", "yes"));
     private static final Set<String> INVARIANT_OS_WORDS = new HashSet<>(
             java.util.Arrays.asList("chaos", "ethos", "pathos", "cosmos"));
+    private static final Pattern LEADING_ARTICLES_PATTERN = Pattern.compile("^(?:(?:a|an|the)\\s+)+");
     private final Map<String, String> entries;
 
     public FactualDictionary(File dictionaryFile) throws IOException, JSONException {
@@ -90,6 +95,32 @@ public class FactualDictionary {
             matches.add(fact.key + ": " + fact.value);
         }
         return matches;
+    }
+
+    public String findExactFact(String text) {
+        if (text == null || text.trim().isEmpty() || entries.isEmpty()) {
+            return null;
+        }
+        String normalizedText = normalize(text);
+        if (normalizedText.isEmpty()) {
+            return null;
+        }
+        String subject = extractDefinitionSubject(normalizedText);
+        if (subject == null) return null;
+        String fact = entries.get(subject);
+        if (fact != null) {
+            return fact;
+        }
+        Set<String> subjectVariants = new HashSet<>();
+        subjectVariants.add(subject);
+        addSingularVariants(subjectVariants, subject);
+        for (String candidate : subjectVariants) {
+            fact = entries.get(candidate);
+            if (fact != null) {
+                return fact;
+            }
+        }
+        return null;
     }
 
     private static int countOverlap(Set<String> left, Set<String> right) {
@@ -175,6 +206,18 @@ public class FactualDictionary {
                 .replaceAll("[^\\p{L}\\p{N}\\s]+", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
+    }
+
+    private static String extractDefinitionSubject(String normalizedText) {
+        for (String prefix : DEFINITION_PREFIXES) {
+            if (!normalizedText.startsWith(prefix)) continue;
+            String subject = LEADING_ARTICLES_PATTERN
+                    .matcher(normalizedText.substring(prefix.length()))
+                    .replaceFirst("")
+                    .trim();
+            return subject.isEmpty() ? null : subject;
+        }
+        return null;
     }
 
     private static final class ScoredFact {
