@@ -15,7 +15,7 @@ import java.io.InputStream;
  * Files are stored in the app's internal files directory:
  *   <filesDir>/smollm2/model_q4.onnx
  *   <filesDir>/smollm2/tokenizer.json
- *   <filesDir>/smollm2/dictionary.json
+ *   <filesDir>/smollm2/wordnet.json
  */
 public class ModelManager {
 
@@ -23,7 +23,7 @@ public class ModelManager {
 
     private static final String MODEL_FILENAME     = "model_q4.onnx";
     private static final String TOKENIZER_FILENAME = "tokenizer.json";
-    private static final String DICTIONARY_FILENAME = "dictionary.json";
+    private static final String DICTIONARY_FILENAME = "wordnet.json";
     private static final String ASSET_MODEL_PATH = "smollm2/" + MODEL_FILENAME;
     private static final String ASSET_TOKENIZER_PATH = "smollm2/" + TOKENIZER_FILENAME;
     private static final String ASSET_DICTIONARY_PATH = "smollm2/" + DICTIONARY_FILENAME;

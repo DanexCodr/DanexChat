@@ -19,7 +19,7 @@ import java.util.Set;
 import java.util.TreeMap;
 
 /**
- * Lightweight local dictionary used to ground factual prompts.
+ * Lightweight local WordNet-style dictionary used to ground factual prompts.
  */
 public class FactualDictionary {
 
