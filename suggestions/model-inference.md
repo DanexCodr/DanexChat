@@ -6,9 +6,9 @@ This document focuses on practical ideas to make DanexChat outputs more factual,
 
 1. **Deterministic factual mode toggle**
    - Add a "Factual mode" preset that sets:
-     - temperature: `0.2-0.4`
-     - top-p: `0.7-0.85`
-     - max_new_tokens: context-dependent (short for direct factual queries)
+      - temperature: `0`
+      - top-p: `0.7-0.85`
+      - max_new_tokens: context-dependent (short for direct factual queries)
    - Why: reduces hallucinated drift and keeps reasoning tighter for knowledge questions.
 
 2. **Prompt-level answer structure hints**
