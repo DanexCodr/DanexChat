@@ -24,7 +24,7 @@ def export_bert_tiny(output_dir: str) -> None:
     os.makedirs(output_dir, exist_ok=True)
 
     print(f"Loading {MODEL_NAME} ...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
     model = AutoModel.from_pretrained(MODEL_NAME)
     model.eval()
 
