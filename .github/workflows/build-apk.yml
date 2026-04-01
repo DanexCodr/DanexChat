@@ -58,8 +58,12 @@ jobs:
 
           # Guardrail against placeholder/invalid files while keeping threshold conservative.
           BERT_MIN_BYTES=1024
-          BERT_MODEL_URL="https://huggingface.co/Xenova/bert-tiny-uncased/resolve/main/onnx/model.onnx"
-          BERT_VOCAB_URL="https://huggingface.co/prajjwal1/bert-tiny/resolve/main/vocab.txt"
+          BERT_REPO_URL="https://huggingface.co/prajjwal1/bert-tiny"
+          BERT_VOCAB_URL="$BERT_REPO_URL/resolve/main/vocab.txt"
+          BERT_MODEL_URLS=(
+            "https://huggingface.co/Xenova/bert-tiny-uncased/resolve/main/onnx/model.onnx"
+            "https://huggingface.co/onnx-community/bert-tiny-uncased/resolve/main/onnx/model.onnx"
+          )
 
           has_valid_bert_cache() {
             [ -s .cache/bert_tiny/bert_tiny.onnx ] \
@@ -83,12 +87,21 @@ jobs:
             echo "Using cached BERT-tiny assets"
           else
             download_file .cache/bert_tiny/bert_tiny.onnx \
-              "$BERT_MODEL_URL" \
-              || echo "Error: Failed to download bert_tiny.onnx from $BERT_MODEL_URL"
+              "${BERT_MODEL_URLS[@]}" \
+              || echo "Warning: Failed to download bert_tiny.onnx from public ONNX mirrors"
 
             download_file .cache/bert_tiny/bert_vocab.txt \
               "$BERT_VOCAB_URL" \
               || echo "Error: Failed to download bert_vocab.txt from $BERT_VOCAB_URL"
+
+            if [ ! -s .cache/bert_tiny/bert_tiny.onnx ] && [ -s .cache/bert_tiny/bert_vocab.txt ]; then
+              echo "Falling back to local export from $BERT_REPO_URL for bert_tiny.onnx"
+              python3 -m pip install --upgrade pip
+              python3 -m pip install torch transformers onnx
+              python3 training/export_bert_tiny.py --output-dir /tmp/bert_tiny_assets
+              cp /tmp/bert_tiny_assets/bert_tiny.onnx .cache/bert_tiny/bert_tiny.onnx
+              cp /tmp/bert_tiny_assets/bert_vocab.txt .cache/bert_tiny/bert_vocab.txt
+            fi
           fi
 
           if ! has_valid_bert_cache; then
