@@ -82,18 +82,12 @@ jobs:
           if has_valid_bert_cache; then
             echo "Using cached BERT-tiny assets"
           else
-            download_file .cache/bert_tiny/bert_vocab.txt \
-              "$BERT_VOCAB_URL" \
-              || echo "Error: Failed to download bert_vocab.txt from $BERT_VOCAB_URL"
-
-            if [ ! -s .cache/bert_tiny/bert_tiny.onnx ] || [ ! -s .cache/bert_tiny/bert_vocab.txt ]; then
-              echo "Generating BERT-tiny assets from $BERT_REPO_URL"
-              python3 -m pip install --upgrade pip
-              python3 -m pip install torch transformers onnx
-              python3 training/export_bert_tiny.py --output-dir /tmp/bert_tiny_assets
-              cp /tmp/bert_tiny_assets/bert_tiny.onnx .cache/bert_tiny/bert_tiny.onnx
-              cp /tmp/bert_tiny_assets/bert_vocab.txt .cache/bert_tiny/bert_vocab.txt
-            fi
+            echo "Generating BERT-tiny assets from $BERT_REPO_URL"
+            python3 -m pip install --upgrade pip
+            python3 -m pip install torch transformers
+            python3 training/export_bert_tiny.py --output-dir /tmp/bert_tiny_assets
+            cp /tmp/bert_tiny_assets/bert_tiny.onnx .cache/bert_tiny/bert_tiny.onnx
+            cp /tmp/bert_tiny_assets/bert_vocab.txt .cache/bert_tiny/bert_vocab.txt
           fi
 
           if ! has_valid_bert_cache; then
