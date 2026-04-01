@@ -24,12 +24,17 @@ import java.util.TreeMap;
 public class FactualDictionary {
 
     private static final long MAX_DICTIONARY_BYTES = 1024L * 1024L;
+    // Prefer direct key hits, then semantic-ish overlap on key terms, then weaker overlap on definitions.
     private static final int WHOLE_KEY_MATCH_WEIGHT = 4;
     private static final int KEY_TOKEN_OVERLAP_WEIGHT = 3;
     private static final int VALUE_TOKEN_OVERLAP_WEIGHT = 1;
     private static final int MIN_TOKEN_LENGTH = 2;
     private static final Set<String> INVARIANT_IES_WORDS = new HashSet<>(
-            java.util.Arrays.asList("species", "series"));
+            java.util.Arrays.asList("species", "series", "aries"));
+    private static final Set<String> INVARIANT_AS_WORDS = new HashSet<>(
+            java.util.Arrays.asList("atlas", "canvas", "bias", "gas", "yes"));
+    private static final Set<String> INVARIANT_OS_WORDS = new HashSet<>(
+            java.util.Arrays.asList("chaos", "ethos", "pathos", "cosmos"));
     private final Map<String, String> entries;
 
     public FactualDictionary(File dictionaryFile) throws IOException, JSONException {
@@ -113,9 +118,13 @@ public class FactualDictionary {
     }
 
     private static void addSingularVariants(Set<String> tokens, String token) {
-        if (token.endsWith("ies") && token.length() >= 5 && !INVARIANT_IES_WORDS.contains(token)) {
+        if (token.endsWith("ies") && token.length() >= 4 && !INVARIANT_IES_WORDS.contains(token)) {
             String stem = token.substring(0, token.length() - 3);
-            tokens.add(stem + "y");
+            if (token.length() == 4) {
+                tokens.add(stem + "ie");
+            } else {
+                tokens.add(stem + "y");
+            }
             return;
         }
         if (looksLikeEsPlural(token)) {
@@ -141,8 +150,8 @@ public class FactualDictionary {
                 && !token.endsWith("ss")
                 && !token.endsWith("us")
                 && !token.endsWith("is")
-                && !token.endsWith("as")
-                && !token.endsWith("os");
+                && !INVARIANT_AS_WORDS.contains(token)
+                && !INVARIANT_OS_WORDS.contains(token);
     }
 
     private static boolean containsWholeWord(String haystack, String needle) {
