@@ -9,10 +9,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
@@ -47,17 +50,62 @@ public class FactualDictionary {
             return Collections.emptyList();
         }
         String normalizedText = normalize(text);
-        List<String> matches = new ArrayList<>();
+        if (normalizedText.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Set<String> queryTokens = toTokenSet(normalizedText);
+        List<ScoredFact> scoredFacts = new ArrayList<>();
         for (Map.Entry<String, String> entry : entries.entrySet()) {
             String key = entry.getKey();
+            int score = 0;
             if (containsWholeWord(normalizedText, key)) {
-                matches.add(key + ": " + entry.getValue());
-                if (matches.size() >= maxFacts) {
-                    break;
+                score += 4;
+            }
+            Set<String> keyTokens = toTokenSet(key);
+            score += countOverlap(queryTokens, keyTokens) * 3;
+            Set<String> valueTokens = toTokenSet(normalize(entry.getValue()));
+            score += countOverlap(queryTokens, valueTokens);
+            if (score > 0) {
+                scoredFacts.add(new ScoredFact(key, entry.getValue(), score));
+            }
+        }
+        scoredFacts.sort(Comparator
+                .comparingInt((ScoredFact fact) -> fact.score)
+                .reversed()
+                .thenComparing(fact -> fact.key));
+        List<String> matches = new ArrayList<>(Math.min(maxFacts, scoredFacts.size()));
+        for (int i = 0; i < scoredFacts.size() && matches.size() < maxFacts; i++) {
+            ScoredFact fact = scoredFacts.get(i);
+            matches.add(fact.key + ": " + fact.value);
+        }
+        return matches;
+    }
+
+    private static int countOverlap(Set<String> left, Set<String> right) {
+        int overlap = 0;
+        for (String token : left) {
+            if (right.contains(token)) {
+                overlap++;
+            }
+        }
+        return overlap;
+    }
+
+    private static Set<String> toTokenSet(String text) {
+        if (text == null || text.isEmpty()) {
+            return Collections.emptySet();
+        }
+        String[] parts = text.split("\\s+");
+        Set<String> tokens = new HashSet<>();
+        for (String part : parts) {
+            if (part.length() >= 2) {
+                tokens.add(part);
+                if (part.endsWith("s") && part.length() > 3) {
+                    tokens.add(part.substring(0, part.length() - 1));
                 }
             }
         }
-        return matches;
+        return tokens;
     }
 
     private static boolean containsWholeWord(String haystack, String needle) {
@@ -81,5 +129,17 @@ public class FactualDictionary {
                 .replaceAll("[^\\p{L}\\p{N}\\s]+", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
+    }
+
+    private static final class ScoredFact {
+        final String key;
+        final String value;
+        final int score;
+
+        ScoredFact(String key, String value, int score) {
+            this.key = key;
+            this.value = value;
+            this.score = score;
+        }
     }
 }

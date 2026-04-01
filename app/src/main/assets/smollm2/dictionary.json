@@ -4,5 +4,8 @@
   "onnx": "ONNX is an open model exchange format used here to run inference with ONNX Runtime on Android.",
   "quantization": "4-bit quantization reduces model size and memory usage while keeping useful generation quality.",
   "routing": "Routing classifies requests such as factual, creative, or general so generation settings can be adjusted.",
-  "date": "A date is a calendar reference for a specific day such as year-month-day."
+  "date": "A date is a calendar reference for a specific day such as year-month-day.",
+  "cats": "Cats are mammals in the family Felidae.",
+  "dogs": "Dogs are mammals in the family Canidae.",
+  "cat vs dog": "Cats and dogs are both mammals but belong to different families: Felidae (cats) and Canidae (dogs)."
 }

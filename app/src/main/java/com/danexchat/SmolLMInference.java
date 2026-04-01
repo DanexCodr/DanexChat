@@ -185,15 +185,17 @@ public class SmolLMInference {
         StringBuilder sb = new StringBuilder();
         sb.append("<|im_start|>system\n")
            .append("You are a helpful on-device AI assistant.\n")
-           .append("Always answer the user's latest message directly.\n")
-           .append("Use earlier messages only when they are relevant to the current request.\n")
-           .append("If the user switches topics, switch context immediately and do not continue the old topic.\n")
-           .append("If a request is ambiguous, pick the best-supported interpretation and continue directly.\n")
-           .append("Keep answers clear, factual, and concise.\n")
-           .append("If you are unsure, acknowledge uncertainty instead of guessing.\n")
-           .append("Routing mode: $route.\n")
-           .append("Current date is $date, current time is $time, and current datetime is $datetime.\n")
-           .append("<|im_end|>\n");
+            .append("Always answer the user's latest message directly.\n")
+            .append("Use earlier messages only when they are relevant to the current request.\n")
+            .append("If the user switches topics, switch context immediately and do not continue the old topic.\n")
+            .append("If a request is ambiguous, pick the best-supported interpretation and continue directly.\n")
+            .append("Keep answers clear, factual, and concise.\n")
+            .append("If local factual hints are provided, treat them as the primary source of truth.\n")
+            .append("Do not invent facts that are not supported by local factual hints or clear user context.\n")
+            .append("If you are unsure, explicitly say you are not fully sure instead of guessing.\n")
+            .append("Routing mode: $route.\n")
+            .append("Current date is $date, current time is $time, and current datetime is $datetime.\n")
+            .append("<|im_end|>\n");
         appendSummaryBlock(sb, "Archived conversation summary", archivedSummary);
         appendSummaryBlock(sb, "Conversation summary", summary);
         appendSummaryBlock(sb, "Factual dictionary hints", buildDictionaryFacts(history));
