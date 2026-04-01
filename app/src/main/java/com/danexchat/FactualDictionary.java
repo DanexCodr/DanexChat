@@ -24,6 +24,10 @@ import java.util.TreeMap;
 public class FactualDictionary {
 
     private static final long MAX_DICTIONARY_BYTES = 1024L * 1024L;
+    private static final int WHOLE_KEY_MATCH_WEIGHT = 4;
+    private static final int KEY_TOKEN_OVERLAP_WEIGHT = 3;
+    private static final int VALUE_TOKEN_OVERLAP_WEIGHT = 1;
+    private static final int MIN_TOKEN_LENGTH = 2;
     private final Map<String, String> entries;
 
     public FactualDictionary(File dictionaryFile) throws IOException, JSONException {
@@ -59,12 +63,12 @@ public class FactualDictionary {
             String key = entry.getKey();
             int score = 0;
             if (containsWholeWord(normalizedText, key)) {
-                score += 4;
+                score += WHOLE_KEY_MATCH_WEIGHT;
             }
             Set<String> keyTokens = toTokenSet(key);
-            score += countOverlap(queryTokens, keyTokens) * 3;
+            score += countOverlap(queryTokens, keyTokens) * KEY_TOKEN_OVERLAP_WEIGHT;
             Set<String> valueTokens = toTokenSet(normalize(entry.getValue()));
-            score += countOverlap(queryTokens, valueTokens);
+            score += countOverlap(queryTokens, valueTokens) * VALUE_TOKEN_OVERLAP_WEIGHT;
             if (score > 0) {
                 scoredFacts.add(new ScoredFact(key, entry.getValue(), score));
             }
@@ -98,14 +102,43 @@ public class FactualDictionary {
         String[] parts = text.split("\\s+");
         Set<String> tokens = new HashSet<>();
         for (String part : parts) {
-            if (part.length() >= 2) {
+            if (part.length() >= MIN_TOKEN_LENGTH) {
                 tokens.add(part);
-                if (part.endsWith("s") && part.length() > 3) {
-                    tokens.add(part.substring(0, part.length() - 1));
-                }
+                addSingularVariants(tokens, part);
             }
         }
         return tokens;
+    }
+
+    private static void addSingularVariants(Set<String> tokens, String token) {
+        if (token.endsWith("ies") && token.length() >= 4) {
+            tokens.add(token.substring(0, token.length() - 3) + "y");
+            return;
+        }
+        if (looksLikeEsPlural(token)) {
+            tokens.add(token.substring(0, token.length() - 2));
+            return;
+        }
+        if (looksLikeSimpleSPlural(token)) {
+            tokens.add(token.substring(0, token.length() - 1));
+        }
+    }
+
+    private static boolean looksLikeEsPlural(String token) {
+        return token.length() >= 4
+                && (token.endsWith("ses")
+                || token.endsWith("xes")
+                || token.endsWith("zes")
+                || token.endsWith("ches")
+                || token.endsWith("shes"));
+    }
+
+    private static boolean looksLikeSimpleSPlural(String token) {
+        return token.length() >= 3
+                && token.endsWith("s")
+                && !token.endsWith("ss")
+                && !token.endsWith("us")
+                && !token.endsWith("is");
     }
 
     private static boolean containsWholeWord(String haystack, String needle) {
