@@ -84,7 +84,7 @@ jobs:
           else
             echo "Generating BERT-tiny assets from $BERT_REPO_URL"
             python3 -m pip install --upgrade pip
-            python3 -m pip install torch transformers protobuf sentencepiece
+            python3 -m pip install torch "transformers<5" "tokenizers<0.20" protobuf sentencepiece
             python3 training/export_bert_tiny.py --output-dir /tmp/bert_tiny_assets \
               || { echo "Error: BERT-tiny export script failed"; exit 1; }
             cp /tmp/bert_tiny_assets/bert_tiny.onnx .cache/bert_tiny/bert_tiny.onnx \
