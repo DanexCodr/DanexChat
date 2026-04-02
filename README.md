@@ -98,6 +98,8 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 > mkdir -p app/src/main/assets/bert_tiny
 > cp /tmp/bert_tiny_assets/bert_tiny.onnx app/src/main/assets/bert_tiny/bert_tiny.onnx
 > cp /tmp/bert_tiny_assets/bert_vocab.txt app/src/main/assets/bert_tiny/bert_vocab.txt
+> # if export produced external data sidecar, copy it too:
+> [ -f /tmp/bert_tiny_assets/bert_tiny.onnx.data ] && cp /tmp/bert_tiny_assets/bert_tiny.onnx.data app/src/main/assets/bert_tiny/bert_tiny.onnx.data
 > ```
 
 ## Dependencies

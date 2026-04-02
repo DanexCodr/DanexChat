@@ -65,7 +65,9 @@ jobs:
             [ -s .cache/bert_tiny/bert_tiny.onnx ] \
               && [ -s .cache/bert_tiny/bert_vocab.txt ] \
               && [ "$(wc -c < .cache/bert_tiny/bert_tiny.onnx)" -ge "$BERT_MIN_BYTES" ] \
-              && [ "$(wc -c < .cache/bert_tiny/bert_vocab.txt)" -ge "$BERT_MIN_BYTES" ]
+              && [ "$(wc -c < .cache/bert_tiny/bert_vocab.txt)" -ge "$BERT_MIN_BYTES" ] \
+              && { ! grep -aq "bert_tiny.onnx.data" .cache/bert_tiny/bert_tiny.onnx \
+                  || [ -s .cache/bert_tiny/bert_tiny.onnx.data ]; }
           }
 
           download_file() {
@@ -89,6 +91,12 @@ jobs:
               || { echo "Error: BERT-tiny export script failed"; exit 1; }
             cp /tmp/bert_tiny_assets/bert_tiny.onnx .cache/bert_tiny/bert_tiny.onnx \
               || { echo "Error: Failed to copy generated bert_tiny.onnx"; exit 1; }
+            if [ -s /tmp/bert_tiny_assets/bert_tiny.onnx.data ]; then
+              cp /tmp/bert_tiny_assets/bert_tiny.onnx.data .cache/bert_tiny/bert_tiny.onnx.data \
+                || { echo "Error: Failed to copy generated bert_tiny.onnx.data"; exit 1; }
+            else
+              rm -f .cache/bert_tiny/bert_tiny.onnx.data
+            fi
             cp /tmp/bert_tiny_assets/bert_vocab.txt .cache/bert_tiny/bert_vocab.txt \
               || { echo "Error: Failed to copy generated bert_vocab.txt"; exit 1; }
           fi
@@ -99,11 +107,19 @@ jobs:
           fi
 
           cp .cache/bert_tiny/bert_tiny.onnx app/src/main/assets/bert_tiny/bert_tiny.onnx
+          if [ -s .cache/bert_tiny/bert_tiny.onnx.data ]; then
+            cp .cache/bert_tiny/bert_tiny.onnx.data app/src/main/assets/bert_tiny/bert_tiny.onnx.data
+          else
+            rm -f app/src/main/assets/bert_tiny/bert_tiny.onnx.data
+          fi
           cp .cache/bert_tiny/bert_vocab.txt app/src/main/assets/bert_tiny/bert_vocab.txt
           test -s app/src/main/assets/bert_tiny/bert_tiny.onnx || { echo "Error: bert_tiny.onnx missing or empty"; exit 1; }
           test -s app/src/main/assets/bert_tiny/bert_vocab.txt || { echo "Error: bert_vocab.txt missing or empty"; exit 1; }
           test "$(wc -c < app/src/main/assets/bert_tiny/bert_tiny.onnx)" -ge "$BERT_MIN_BYTES" || { echo "Error: bert_tiny.onnx too small"; exit 1; }
           test "$(wc -c < app/src/main/assets/bert_tiny/bert_vocab.txt)" -ge "$BERT_MIN_BYTES" || { echo "Error: bert_vocab.txt too small"; exit 1; }
+          if grep -aq "bert_tiny.onnx.data" app/src/main/assets/bert_tiny/bert_tiny.onnx; then
+            test -s app/src/main/assets/bert_tiny/bert_tiny.onnx.data || { echo "Error: bert_tiny.onnx.data required but missing"; exit 1; }
+          fi
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
