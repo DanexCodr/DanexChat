@@ -8,6 +8,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Manages bundled SmolLM2 ONNX model and tokenizer assets, and the optional
@@ -38,10 +39,13 @@ public class ModelManager {
     // BERT-tiny assets (optional – gracefully absent when not bundled)
     private static final String BERT_DIR              = "bert_tiny";
     private static final String BERT_MODEL_FILENAME   = "bert_tiny.onnx";
+    private static final String BERT_MODEL_DATA_FILENAME = "bert_tiny.onnx.data";
     private static final String BERT_VOCAB_FILENAME   = "bert_vocab.txt";
     private static final String ASSET_BERT_MODEL_PATH = BERT_DIR + "/" + BERT_MODEL_FILENAME;
+    private static final String ASSET_BERT_MODEL_DATA_PATH = BERT_DIR + "/" + BERT_MODEL_DATA_FILENAME;
     private static final String ASSET_BERT_VOCAB_PATH = BERT_DIR + "/" + BERT_VOCAB_FILENAME;
     private static final long MIN_BERT_MODEL_BYTES    = 1024L;
+    private static final long MIN_BERT_MODEL_DATA_BYTES = 1L;
     private static final long MIN_BERT_VOCAB_BYTES    = 1024L;
 
     private final File modelDir;
@@ -50,6 +54,7 @@ public class ModelManager {
     private final File dictionaryFile;
     private final File bertDir;
     private final File bertModelFile;
+    private final File bertModelDataFile;
     private final File bertVocabFile;
     private final AssetManager assetManager;
 
@@ -60,6 +65,7 @@ public class ModelManager {
         dictionaryFile = new File(modelDir, DICTIONARY_FILENAME);
         bertDir        = new File(context.getFilesDir(), BERT_DIR);
         bertModelFile  = new File(bertDir, BERT_MODEL_FILENAME);
+        bertModelDataFile = new File(bertDir, BERT_MODEL_DATA_FILENAME);
         bertVocabFile  = new File(bertDir, BERT_VOCAB_FILENAME);
         assetManager   = context.getAssets();
         if (!modelDir.exists()) modelDir.mkdirs();
@@ -70,6 +76,7 @@ public class ModelManager {
     public File getTokenizerFile()  { return tokenizerFile; }
     public File getDictionaryFile() { return dictionaryFile; }
     public File getBertModelFile()  { return bertModelFile; }
+    public File getBertModelDataFile() { return bertModelDataFile; }
     public File getBertVocabFile()  { return bertVocabFile; }
 
     /** Returns true if bundled assets can be prepared into internal storage and pass size checks. */
@@ -86,8 +93,14 @@ public class ModelManager {
      */
     public boolean hasBertFiles() {
         ensureBertFiles();
-        return hasValidSize(bertModelFile, MIN_BERT_MODEL_BYTES)
-                && hasValidSize(bertVocabFile, MIN_BERT_VOCAB_BYTES);
+        if (!hasValidSize(bertModelFile, MIN_BERT_MODEL_BYTES)
+                || !hasValidSize(bertVocabFile, MIN_BERT_VOCAB_BYTES)) {
+            return false;
+        }
+        if (!modelUsesExternalData(bertModelFile, BERT_MODEL_DATA_FILENAME)) {
+            return true;
+        }
+        return hasValidSize(bertModelDataFile, MIN_BERT_MODEL_DATA_BYTES);
     }
 
     /**
@@ -107,6 +120,14 @@ public class ModelManager {
                 copyAssetIfExists(ASSET_BERT_MODEL_PATH, bertModelFile);
             } catch (IOException e) {
                 Log.w(TAG, "BERT model asset not available", e);
+            }
+        }
+        if (modelUsesExternalData(bertModelFile, BERT_MODEL_DATA_FILENAME)
+                && !hasValidSize(bertModelDataFile, MIN_BERT_MODEL_DATA_BYTES)) {
+            try {
+                copyAssetIfExists(ASSET_BERT_MODEL_DATA_PATH, bertModelDataFile);
+            } catch (IOException e) {
+                Log.w(TAG, "BERT model external-data asset not available", e);
             }
         }
     }
@@ -172,6 +193,32 @@ public class ModelManager {
             }
             throw e;
         }
+    }
+
+    private boolean modelUsesExternalData(File model, String externalDataFileName) {
+        if (!hasValidSize(model, MIN_BERT_MODEL_BYTES)) return false;
+        byte[] needle = externalDataFileName.getBytes(StandardCharsets.UTF_8);
+        byte[] buffer = new byte[8192];
+        int matched = 0;
+        try (InputStream in = java.nio.file.Files.newInputStream(model.toPath())) {
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                for (int i = 0; i < read; i++) {
+                    if (buffer[i] == needle[matched]) {
+                        matched++;
+                        if (matched == needle.length) return true;
+                    } else if (buffer[i] == needle[0]) {
+                        matched = 1;
+                    } else {
+                        matched = 0;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            Log.w(TAG, "Could not inspect ONNX model for external data references: "
+                    + model.getAbsolutePath(), e);
+        }
+        return false;
     }
 
 }
