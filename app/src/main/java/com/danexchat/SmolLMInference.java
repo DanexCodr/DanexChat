@@ -66,6 +66,12 @@ public class SmolLMInference {
     private static final float DEFAULT_TOP_P = 0.9f;
     private static final int DEFAULT_MAX_NEW_TOKENS = 256;
     private static final int MAX_DICTIONARY_FACTS = 3;
+    /**
+     * Placeholder token that the model is instructed to emit where the dictionary
+     * definition should be inserted.  Post-processing replaces this with the verbatim
+     * definition text before the response is delivered to the caller.
+     */
+    private static final String DICT_DEFINITION_PLACEHOLDER = "<<DEFINITION>>";
     private static final int HISTORY_RELEVANCE_MIN_SIZE = 8;
     private static final int HISTORY_RELEVANCE_RECENT_KEEP = 4;
     private static final int HISTORY_RELEVANCE_MAX_OLDER = 6;
@@ -297,11 +303,21 @@ public class SmolLMInference {
             StreamCallback callback
     ) throws Exception {
         String lastUserText = extractLastUserText(history);
-        String deterministicFactualResponse = tryBuildDeterministicFactualResponse(history);
-        if (deterministicFactualResponse != null) {
-            callback.onComplete(deterministicFactualResponse);
-            return;
+
+        // Check for an exact dictionary match first.  When found, the model is run with
+        // template-enforced instructions (without the definition) so it can freely
+        // rephrase the beginning/ending while the verbatim definition and topic are
+        // injected during post-processing.
+        if (factualDictionary != null && lastUserText != null) {
+            FactualDictionary.DictionaryMatch dictMatch =
+                    factualDictionary.findExactMatch(lastUserText);
+            if (dictMatch != null) {
+                generateDictionaryResponse(
+                        dictMatch, history, summary, archivedSummary, promptTags, callback);
+                return;
+            }
         }
+
         if (semanticResponseCache != null && lastUserText != null) {
             String cached = semanticResponseCache.find(lastUserText);
             if (cached != null) {
@@ -412,23 +428,150 @@ public class SmolLMInference {
                 && !fullResponse.trim().isEmpty();
     }
 
-    private String tryBuildDeterministicFactualResponse(List<Message> history) {
-        if (factualDictionary == null || history == null || history.isEmpty()) {
-            return null;
-        }
-        Message lastUser = null;
-        for (int i = history.size() - 1; i >= 0; i--) {
-            Message msg = history.get(i);
-            if (msg.isUser()) {
-                lastUser = msg;
-                break;
+    /**
+     * Runs a full model generation pass for an exact dictionary query.
+     *
+     * <p>The model is given only the topic (never the definition) together with
+     * strict template instructions.  After generation the response is assembled
+     * by {@link #assembleDictionaryResponse}: the verbatim definition is injected
+     * where the model placed {@value #DICT_DEFINITION_PLACEHOLDER}, and the
+     * canonical topic name is enforced in the closing question.
+     */
+    private void generateDictionaryResponse(
+            FactualDictionary.DictionaryMatch dictMatch,
+            List<Message> history,
+            String summary,
+            String archivedSummary,
+            Map<String, String> promptTags,
+            StreamCallback callback
+    ) throws Exception {
+        String topic      = dictMatch.topic;
+        String definition = dictMatch.definition;
+
+        String prompt     = buildDictionaryPrompt(
+                topic, history, summary, archivedSummary, promptTags);
+        long[] promptIds  = tokenizer.encodeWithSpecialTokens(prompt);
+        promptIds         = trimPromptWithAttentionSink(promptIds);
+
+        StringBuilder responseBuilder = new StringBuilder();
+        // The generation methods (generateWithKVCache / generateNoKVCache) always
+        // accumulate tokens into responseBuilder via out.append(piece) and then call
+        // onComplete(out.toString()).  onToken is suppressed here so that the raw
+        // (placeholder-containing) tokens are never forwarded to the UI; the fully
+        // assembled response is delivered in a single onComplete call instead.
+        StreamCallback dictCallback = new StreamCallback() {
+            @Override public void onToken(String tokenText) { /* suppress – see comment above */ }
+
+            @Override
+            public void onComplete(String fullResponse) {
+                callback.onComplete(
+                        assembleDictionaryResponse(fullResponse, definition, topic));
             }
+
+            @Override
+            public void onError(Exception e) { callback.onError(e); }
+        };
+
+        if (hasKVCache) {
+            generateWithKVCache(promptIds, responseBuilder, dictCallback);
+        } else {
+            generateNoKVCache(promptIds, responseBuilder, dictCallback);
         }
-        if (lastUser == null) {
-            return null;
+    }
+
+    /**
+     * Builds a ChatML prompt for a dictionary definition query.
+     *
+     * <p>The model learns only the {@code topic}; the definition is intentionally
+     * withheld.  The system block instructs the model to:
+     * <ol>
+     *   <li>Write a brief introductory phrase (the <em>beginning</em>).</li>
+     *   <li>Output the literal placeholder {@value #DICT_DEFINITION_PLACEHOLDER}
+     *       where the definition will be injected.</li>
+     *   <li>Ask a closing question that names the exact topic (the <em>ending</em>).</li>
+     * </ol>
+     */
+    private String buildDictionaryPrompt(
+            String topic,
+            List<Message> history,
+            String summary,
+            String archivedSummary,
+            Map<String, String> promptTags
+    ) {
+        Map<String, String> effectiveTags = buildRealtimeTags(promptTags);
+        StringBuilder sb = new StringBuilder();
+        sb.append("<|im_start|>system\n")
+          .append("You are a helpful on-device AI assistant.\n")
+          .append("The user asked for the definition of: ").append(topic).append(".\n")
+          .append("Respond using EXACTLY this three-part format – no exceptions:\n")
+          .append("  1. A brief introductory phrase leading into the definition.\n")
+          .append("  2. The literal text ").append(DICT_DEFINITION_PLACEHOLDER)
+          .append(" (this will be replaced with the actual definition).\n")
+          .append("  3. A closing question asking whether the user wants to know more about ")
+          .append(topic).append(".\n")
+          .append("Rules you MUST follow:\n")
+          .append("  - ").append(DICT_DEFINITION_PLACEHOLDER)
+          .append(" MUST appear exactly once, unchanged.\n")
+          .append("  - The closing question MUST contain the exact topic name: ")
+          .append(topic).append(".\n")
+          .append("  - You may rephrase parts 1 and 3, but MUST NOT alter ")
+          .append(DICT_DEFINITION_PLACEHOLDER).append(" or the topic name.\n")
+          .append("  - Do NOT include the actual definition – only the placeholder.\n")
+          .append("Routing mode: $route.\n")
+          .append("Current date is $date, current time is $time.\n")
+          .append("<|im_end|>\n");
+        appendSummaryBlock(sb, "Archived conversation summary", archivedSummary);
+        appendSummaryBlock(sb, "Conversation summary", summary);
+        for (Message msg : history) {
+            sb.append(msg.isUser() ? "<|im_start|>user\n" : "<|im_start|>assistant\n")
+              .append(msg.getContent()).append('\n')
+              .append("<|im_end|>\n");
         }
-        String exactFact = factualDictionary.findExactFact(lastUser.getContent());
-        return exactFact == null || exactFact.trim().isEmpty() ? null : exactFact.trim();
+        sb.append("<|im_start|>assistant\n");
+        return applyPromptTags(sb.toString(), effectiveTags);
+    }
+
+    /**
+     * Assembles the final dictionary response by injecting the verbatim
+     * {@code definition} in place of {@value #DICT_DEFINITION_PLACEHOLDER} and
+     * verifying that the closing question contains the exact {@code topic}.
+     *
+     * <p>If the model did not emit the placeholder the {@code modelOutput} is used
+     * as the beginning and the canonical ending is appended:
+     * <pre>
+     *   [model beginning]
+     *
+     *   [verbatim definition]
+     *
+     *   Do you want to know more about [topic]?
+     * </pre>
+     */
+    private static String assembleDictionaryResponse(
+            String modelOutput, String definition, String topic) {
+        String trimmed = (modelOutput == null) ? "" : modelOutput.trim();
+
+        int idx = trimmed.indexOf(DICT_DEFINITION_PLACEHOLDER);
+        if (idx >= 0) {
+            // Replace the placeholder with the verbatim definition.
+            String assembled = trimmed.substring(0, idx)
+                    + definition
+                    + trimmed.substring(idx + DICT_DEFINITION_PLACEHOLDER.length());
+            // Ensure the topic name appears after the injected definition.
+            String afterDef = assembled.substring(idx + definition.length());
+            if (!afterDef.toLowerCase(java.util.Locale.ROOT)
+                    .contains(topic.toLowerCase(java.util.Locale.ROOT))) {
+                assembled = assembled.trim()
+                        + "\n\nDo you want to know more about " + topic + "?";
+            }
+            return assembled.trim();
+        }
+
+        // Fallback: model did not use the placeholder – assemble the template directly.
+        String ending = "Do you want to know more about " + topic + "?";
+        if (!trimmed.isEmpty()) {
+            return trimmed + "\n\n" + definition + "\n\n" + ending;
+        }
+        return definition + "\n\n" + ending;
     }
 
     private static boolean isMissingPositionIdsError(Exception e) {

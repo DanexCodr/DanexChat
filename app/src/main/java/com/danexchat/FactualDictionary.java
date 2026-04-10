@@ -195,6 +195,16 @@ public class FactualDictionary {
     }
 
     public String findExactFact(String text) {
+        DictionaryMatch match = findExactMatch(text);
+        return match != null ? match.definition : null;
+    }
+
+    /**
+     * Returns a {@link DictionaryMatch} containing both the normalized topic key and its
+     * definition when the query is a recognized definition request (e.g. "what is X",
+     * "define X") and an exact entry exists.  Returns {@code null} otherwise.
+     */
+    public DictionaryMatch findExactMatch(String text) {
         if (text == null || text.trim().isEmpty() || entries.isEmpty()) {
             return null;
         }
@@ -206,7 +216,7 @@ public class FactualDictionary {
         if (subject == null) return null;
         String fact = entries.get(subject);
         if (fact != null) {
-            return fact;
+            return new DictionaryMatch(subject, fact);
         }
         Set<String> subjectVariants = new HashSet<>();
         subjectVariants.add(subject);
@@ -214,10 +224,26 @@ public class FactualDictionary {
         for (String candidate : subjectVariants) {
             fact = entries.get(candidate);
             if (fact != null) {
-                return fact;
+                return new DictionaryMatch(candidate, fact);
             }
         }
         return null;
+    }
+
+    /**
+     * Carries the normalised topic key and the corresponding dictionary definition
+     * for a matched definition query.
+     */
+    public static final class DictionaryMatch {
+        /** Normalized dictionary key (e.g. "photosynthesis"). */
+        public final String topic;
+        /** Verbatim definition text from the dictionary. */
+        public final String definition;
+
+        DictionaryMatch(String topic, String definition) {
+            this.topic = topic;
+            this.definition = definition;
+        }
     }
 
     private static int countOverlap(Set<String> left, Set<String> right) {
