@@ -454,10 +454,13 @@ public class SmolLMInference {
         promptIds         = trimPromptWithAttentionSink(promptIds);
 
         StringBuilder responseBuilder = new StringBuilder();
-        // Buffer streamed tokens – post-processing must run on the complete text
-        // before the result is delivered, so we suppress onToken forwarding here.
+        // The generation methods (generateWithKVCache / generateNoKVCache) always
+        // accumulate tokens into responseBuilder via out.append(piece) and then call
+        // onComplete(out.toString()).  onToken is suppressed here so that the raw
+        // (placeholder-containing) tokens are never forwarded to the UI; the fully
+        // assembled response is delivered in a single onComplete call instead.
         StreamCallback dictCallback = new StreamCallback() {
-            @Override public void onToken(String tokenText) { /* buffered */ }
+            @Override public void onToken(String tokenText) { /* suppress – see comment above */ }
 
             @Override
             public void onComplete(String fullResponse) {

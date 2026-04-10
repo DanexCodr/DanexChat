@@ -200,8 +200,8 @@ public class FactualDictionary {
     }
 
     /**
-     * Returns a {@link DictionaryMatch} containing both the normalised topic key and its
-     * definition when the query is a recognised definition request (e.g. "what is X",
+     * Returns a {@link DictionaryMatch} containing both the normalized topic key and its
+     * definition when the query is a recognized definition request (e.g. "what is X",
      * "define X") and an exact entry exists.  Returns {@code null} otherwise.
      */
     public DictionaryMatch findExactMatch(String text) {
@@ -235,7 +235,7 @@ public class FactualDictionary {
      * for a matched definition query.
      */
     public static final class DictionaryMatch {
-        /** Normalised dictionary key (e.g. "photosynthesis"). */
+        /** Normalized dictionary key (e.g. "photosynthesis"). */
         public final String topic;
         /** Verbatim definition text from the dictionary. */
         public final String definition;
