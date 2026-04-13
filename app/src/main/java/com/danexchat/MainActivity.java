@@ -92,12 +92,14 @@ public class MainActivity extends AppCompatActivity {
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
 
     private volatile boolean isGenerating = false;
-    private volatile int activeGenerationId = 0;
-    private volatile Runnable activeRevealRunnable;
-    private volatile Message activeRevealMessage;
-    private volatile int activeRevealGenerationId = -1;
-    private volatile int activeRevealIndex = 0;
-    private volatile String activeRevealFullText = "";
+    // Response reveal state; all accesses are confined to the main/UI thread.
+    private int activeGenerationId = 0;
+    private Runnable activeRevealRunnable;
+    private Message activeRevealMessage;
+    private int activeRevealGenerationId = -1;
+    private int activeRevealIndex = 0;
+    private String activeRevealFullText = "";
+    private final StringBuilder activeRevealBuffer = new StringBuilder();
     private boolean modelReady = false;
 
     @Override
@@ -372,6 +374,7 @@ public class MainActivity extends AppCompatActivity {
         activeRevealGenerationId = generationId;
         activeRevealIndex = 0;
         activeRevealFullText = safeResponse;
+        activeRevealBuffer.setLength(0);
         activeRevealRunnable = new Runnable() {
             @Override
             public void run() {
@@ -384,7 +387,8 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 char ch = safeResponse.charAt(activeRevealIndex++);
-                activeRevealMessage.setContent(activeRevealMessage.getContent() + ch);
+                activeRevealBuffer.append(ch);
+                activeRevealMessage.setContent(activeRevealBuffer.toString());
                 int itemPos = messages.indexOf(activeRevealMessage);
                 if (itemPos >= 0) chatAdapter.notifyItemChanged(itemPos);
                 uiHandler.postDelayed(this, nextRevealDelayMs(ch));
@@ -423,6 +427,7 @@ public class MainActivity extends AppCompatActivity {
         activeRevealGenerationId = -1;
         activeRevealIndex = 0;
         activeRevealFullText = "";
+        activeRevealBuffer.setLength(0);
     }
 
     private void finalizeAssistantMessage(Message aiMsg, int generationId) {

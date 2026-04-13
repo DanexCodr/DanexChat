@@ -622,6 +622,7 @@ public class SmolLMInference {
         for (int i = 0; i < maxLen; i++) {
             char c = text.charAt(i);
             if (c == '.' || c == '!' || c == '?' || c == '\n') {
+                // Return the exclusive end index (safe for substring(0, boundary)).
                 return i + 1;
             }
         }
