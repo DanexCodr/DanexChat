@@ -72,6 +72,12 @@ public class SmolLMInference {
      * definition text before the response is delivered to the caller.
      */
     private static final String DICT_DEFINITION_PLACEHOLDER = "<<DEFINITION>>";
+    // Dictionary template turns should stay short so they complete quickly and avoid long stalls.
+    private static final int DICTIONARY_MAX_NEW_TOKENS = 96;
+    // Intro paraphrase is intentionally constrained to keep fallback assembly concise and stable.
+    private static final int MAX_INTRO_CHARS = 180;
+    private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
+    private static final String DICTIONARY_CLOSING_PHRASE = "Do you want to know more about ";
     private static final int HISTORY_RELEVANCE_MIN_SIZE = 8;
     private static final int HISTORY_RELEVANCE_RECENT_KEEP = 4;
     private static final int HISTORY_RELEVANCE_MAX_OLDER = 6;
@@ -453,6 +459,12 @@ public class SmolLMInference {
         long[] promptIds  = tokenizer.encodeWithSpecialTokens(prompt);
         promptIds         = trimPromptWithAttentionSink(promptIds);
 
+        GenerationOptions previousOptions = generationOptions;
+        generationOptions = new GenerationOptions(
+                previousOptions.temperature,
+                previousOptions.topP,
+                Math.min(previousOptions.maxNewTokens, DICTIONARY_MAX_NEW_TOKENS));
+
         StringBuilder responseBuilder = new StringBuilder();
         // The generation methods (generateWithKVCache / generateNoKVCache) always
         // accumulate tokens into responseBuilder via out.append(piece) and then call
@@ -465,17 +477,25 @@ public class SmolLMInference {
             @Override
             public void onComplete(String fullResponse) {
                 callback.onComplete(
-                        assembleDictionaryResponse(fullResponse, definition, topic));
+                        assembleDictionaryResponse(
+                                fullResponse,
+                                definition,
+                                topic,
+                                stopRequested.get()));
             }
 
             @Override
             public void onError(Exception e) { callback.onError(e); }
         };
 
-        if (hasKVCache) {
-            generateWithKVCache(promptIds, responseBuilder, dictCallback);
-        } else {
-            generateNoKVCache(promptIds, responseBuilder, dictCallback);
+        try {
+            if (hasKVCache) {
+                generateWithKVCache(promptIds, responseBuilder, dictCallback);
+            } else {
+                generateNoKVCache(promptIds, responseBuilder, dictCallback);
+            }
+        } finally {
+            generationOptions = previousOptions;
         }
     }
 
@@ -547,31 +567,74 @@ public class SmolLMInference {
      * </pre>
      */
     private static String assembleDictionaryResponse(
-            String modelOutput, String definition, String topic) {
+            String modelOutput, String definition, String topic, boolean wasStopped) {
         String trimmed = (modelOutput == null) ? "" : modelOutput.trim();
+        String ending = DICTIONARY_CLOSING_PHRASE + topic + "?";
 
         int idx = trimmed.indexOf(DICT_DEFINITION_PLACEHOLDER);
         if (idx >= 0) {
-            // Replace the placeholder with the verbatim definition.
-            String assembled = trimmed.substring(0, idx)
-                    + definition
-                    + trimmed.substring(idx + DICT_DEFINITION_PLACEHOLDER.length());
-            // Ensure the topic name appears after the injected definition.
-            String afterDef = assembled.substring(idx + definition.length());
-            if (!afterDef.toLowerCase(java.util.Locale.ROOT)
-                    .contains(topic.toLowerCase(java.util.Locale.ROOT))) {
-                assembled = assembled.trim()
-                        + "\n\nDo you want to know more about " + topic + "?";
+            String intro = sanitizeDictionaryIntro(trimmed.substring(0, idx));
+            if (intro.isEmpty()) {
+                intro = "Here is the definition of " + topic + ".";
             }
-            return assembled.trim();
+            return (intro + "\n\n" + definition + "\n\n" + ending).trim();
         }
 
-        // Fallback: model did not use the placeholder – assemble the template directly.
-        String ending = "Do you want to know more about " + topic + "?";
-        if (!trimmed.isEmpty()) {
-            return trimmed + "\n\n" + definition + "\n\n" + ending;
+        // Fallback: model omitted placeholder. Keep only an intro-like paraphrase.
+        String intro = sanitizeDictionaryIntro(trimmed);
+        if (intro.isEmpty()) {
+            intro = "Here is the definition of " + topic + ".";
         }
-        return definition + "\n\n" + ending;
+        if (wasStopped && !endsWithSentenceBoundary(intro)) {
+            return intro;
+        }
+        return (intro + "\n\n" + definition + "\n\n" + ending).trim();
+    }
+
+    private static String sanitizeDictionaryIntro(String text) {
+        if (text == null) return "";
+        String normalized = WHITESPACE_PATTERN
+                .matcher(text.replace(DICT_DEFINITION_PLACEHOLDER, " "))
+                .replaceAll(" ")
+                .trim();
+        if (normalized.isEmpty()) return "";
+        String lower = normalized.toLowerCase(java.util.Locale.ROOT);
+        int closingIdx = lower.indexOf(DICTIONARY_CLOSING_PHRASE.toLowerCase(java.util.Locale.ROOT));
+        if (closingIdx >= 0) {
+            normalized = normalized.substring(0, closingIdx).trim();
+        }
+        if (normalized.isEmpty()) return "";
+
+        int boundary = findSentenceBoundary(normalized);
+        if (boundary > 0) {
+            return normalized.substring(0, boundary).trim();
+        }
+        if (normalized.length() <= MAX_INTRO_CHARS) {
+            return normalized;
+        }
+        int cut = normalized.lastIndexOf(' ', MAX_INTRO_CHARS);
+        if (cut <= 0) cut = MAX_INTRO_CHARS;
+        return normalized.substring(0, cut).trim();
+    }
+
+    private static int findSentenceBoundary(String text) {
+        int maxLen = Math.min(text.length(), MAX_INTRO_CHARS);
+        for (int i = 0; i < maxLen; i++) {
+            char c = text.charAt(i);
+            if (c == '.' || c == '!' || c == '?' || c == '\n') {
+                // Return the exclusive end index (safe for substring(0, boundary)).
+                return i + 1;
+            }
+        }
+        return -1;
+    }
+
+    private static boolean endsWithSentenceBoundary(String text) {
+        if (text == null) return false;
+        String trimmed = text.trim();
+        if (trimmed.isEmpty()) return false;
+        char last = trimmed.charAt(trimmed.length() - 1);
+        return last == '.' || last == '!' || last == '?' || last == '\n';
     }
 
     private static boolean isMissingPositionIdsError(Exception e) {
