@@ -72,7 +72,9 @@ public class SmolLMInference {
      * definition text before the response is delivered to the caller.
      */
     private static final String DICT_DEFINITION_PLACEHOLDER = "<<DEFINITION>>";
+    // Dictionary template turns should stay short so they complete quickly and avoid long stalls.
     private static final int DICTIONARY_MAX_NEW_TOKENS = 96;
+    // Intro paraphrase is intentionally constrained to keep fallback assembly concise and stable.
     private static final int MAX_INTRO_CHARS = 180;
     private static final int HISTORY_RELEVANCE_MIN_SIZE = 8;
     private static final int HISTORY_RELEVANCE_RECENT_KEEP = 4;

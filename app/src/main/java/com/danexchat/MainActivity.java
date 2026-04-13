@@ -57,6 +57,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int KEEP_RECENT_MESSAGES = 6;
     private static final int MESSAGE_OVERHEAD_TOKENS = 4;
     private static final int SUMMARY_SNIPPET_MAX_CHARS = 140;
+    // Reveal pacing tuned for natural readability while keeping response display responsive.
     private static final long RESPONSE_REVEAL_DELAY_MS = 16L;
     private static final long RESPONSE_SENTENCE_PAUSE_MS = 220L;
     private static final long RESPONSE_CLAUSE_PAUSE_MS = 80L;
@@ -95,6 +96,7 @@ public class MainActivity extends AppCompatActivity {
     private Runnable activeRevealRunnable;
     private Message activeRevealMessage;
     private int activeRevealGenerationId = -1;
+    private int activeRevealIndex = 0;
     private String activeRevealFullText = "";
     private boolean modelReady = false;
 
@@ -368,8 +370,8 @@ public class MainActivity extends AppCompatActivity {
 
         activeRevealMessage = aiMsg;
         activeRevealGenerationId = generationId;
+        activeRevealIndex = 0;
         activeRevealFullText = safeResponse;
-        final int[] index = {0};
         activeRevealRunnable = new Runnable() {
             @Override
             public void run() {
@@ -377,11 +379,11 @@ public class MainActivity extends AppCompatActivity {
                     cancelActiveReveal();
                     return;
                 }
-                if (index[0] >= safeResponse.length()) {
+                if (activeRevealIndex >= safeResponse.length()) {
                     finalizeAssistantMessage(activeRevealMessage, generationId);
                     return;
                 }
-                char ch = safeResponse.charAt(index[0]++);
+                char ch = safeResponse.charAt(activeRevealIndex++);
                 activeRevealMessage.setContent(activeRevealMessage.getContent() + ch);
                 int itemPos = messages.indexOf(activeRevealMessage);
                 if (itemPos >= 0) chatAdapter.notifyItemChanged(itemPos);
@@ -419,6 +421,7 @@ public class MainActivity extends AppCompatActivity {
         activeRevealRunnable = null;
         activeRevealMessage = null;
         activeRevealGenerationId = -1;
+        activeRevealIndex = 0;
         activeRevealFullText = "";
     }
 
