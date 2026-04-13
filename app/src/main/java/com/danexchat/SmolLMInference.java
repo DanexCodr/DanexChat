@@ -76,6 +76,8 @@ public class SmolLMInference {
     private static final int DICTIONARY_MAX_NEW_TOKENS = 96;
     // Intro paraphrase is intentionally constrained to keep fallback assembly concise and stable.
     private static final int MAX_INTRO_CHARS = 180;
+    private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
+    private static final String DICTIONARY_CLOSING_PHRASE = "Do you want to know more about ";
     private static final int HISTORY_RELEVANCE_MIN_SIZE = 8;
     private static final int HISTORY_RELEVANCE_RECENT_KEEP = 4;
     private static final int HISTORY_RELEVANCE_MAX_OLDER = 6;
@@ -567,7 +569,7 @@ public class SmolLMInference {
     private static String assembleDictionaryResponse(
             String modelOutput, String definition, String topic, boolean wasStopped) {
         String trimmed = (modelOutput == null) ? "" : modelOutput.trim();
-        String ending = "Do you want to know more about " + topic + "?";
+        String ending = DICTIONARY_CLOSING_PHRASE + topic + "?";
 
         int idx = trimmed.indexOf(DICT_DEFINITION_PLACEHOLDER);
         if (idx >= 0) {
@@ -591,12 +593,13 @@ public class SmolLMInference {
 
     private static String sanitizeDictionaryIntro(String text) {
         if (text == null) return "";
-        String normalized = text.replace(DICT_DEFINITION_PLACEHOLDER, " ")
-                .replaceAll("\\s+", " ")
+        String normalized = WHITESPACE_PATTERN
+                .matcher(text.replace(DICT_DEFINITION_PLACEHOLDER, " "))
+                .replaceAll(" ")
                 .trim();
         if (normalized.isEmpty()) return "";
         String lower = normalized.toLowerCase(java.util.Locale.ROOT);
-        int closingIdx = lower.indexOf("do you want to know more about");
+        int closingIdx = lower.indexOf(DICTIONARY_CLOSING_PHRASE.toLowerCase(java.util.Locale.ROOT));
         if (closingIdx >= 0) {
             normalized = normalized.substring(0, closingIdx).trim();
         }

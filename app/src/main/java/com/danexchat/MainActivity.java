@@ -92,12 +92,12 @@ public class MainActivity extends AppCompatActivity {
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
 
     private volatile boolean isGenerating = false;
-    private int activeGenerationId = 0;
-    private Runnable activeRevealRunnable;
-    private Message activeRevealMessage;
-    private int activeRevealGenerationId = -1;
-    private int activeRevealIndex = 0;
-    private String activeRevealFullText = "";
+    private volatile int activeGenerationId = 0;
+    private volatile Runnable activeRevealRunnable;
+    private volatile Message activeRevealMessage;
+    private volatile int activeRevealGenerationId = -1;
+    private volatile int activeRevealIndex = 0;
+    private volatile String activeRevealFullText = "";
     private boolean modelReady = false;
 
     @Override
