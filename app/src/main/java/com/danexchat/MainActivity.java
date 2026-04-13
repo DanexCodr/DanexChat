@@ -1,6 +1,8 @@
 package com.danexchat;
 
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
@@ -55,6 +57,9 @@ public class MainActivity extends AppCompatActivity {
     private static final int KEEP_RECENT_MESSAGES = 6;
     private static final int MESSAGE_OVERHEAD_TOKENS = 4;
     private static final int SUMMARY_SNIPPET_MAX_CHARS = 140;
+    private static final long RESPONSE_REVEAL_DELAY_MS = 16L;
+    private static final long RESPONSE_SENTENCE_PAUSE_MS = 220L;
+    private static final long RESPONSE_CLAUSE_PAUSE_MS = 80L;
     private static final Set<String> AMBIGUOUS_REFERENCES = new HashSet<>(Arrays.asList(
             "it", "this", "that", "they", "them", "he", "she", "him", "her", "these", "those"
     ));
@@ -83,8 +88,14 @@ public class MainActivity extends AppCompatActivity {
     // keyword-only fallback until BERT-tiny finishes loading
     private volatile IntentRouter intentRouter = new IntentRouter(null);
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
 
     private volatile boolean isGenerating = false;
+    private int activeGenerationId = 0;
+    private Runnable activeRevealRunnable;
+    private Message activeRevealMessage;
+    private int activeRevealGenerationId = -1;
+    private String activeRevealFullText = "";
     private boolean modelReady = false;
 
     @Override
@@ -102,6 +113,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        cancelActiveReveal();
         bgExecutor.shutdownNow();
         if (smolLM != null) smolLM.close();
         if (bertEncoder != null) bertEncoder.close();
@@ -231,6 +243,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void onSendOrStopClicked() {
         if (isGenerating) {
+            if (activeRevealRunnable != null) {
+                finishRevealEarly();
+                return;
+            }
             if (smolLM != null) smolLM.requestStop();
             return;
         }
@@ -268,6 +284,8 @@ public class MainActivity extends AppCompatActivity {
         }
 
         isGenerating = true;
+        cancelActiveReveal();
+        final int generationId = ++activeGenerationId;
         updateSendEnabledForInput();
         final String finalModelText = modelText;
         bgExecutor.execute(() -> {
@@ -283,34 +301,23 @@ public class MainActivity extends AppCompatActivity {
                     new SmolLMInference.StreamCallback() {
                         @Override
                         public void onToken(String piece) {
-                            runOnUiThread(() -> {
-                                aiMsg.setContent(aiMsg.getContent() + piece);
-                                int pos = messages.indexOf(aiMsg);
-                                if (pos >= 0) chatAdapter.notifyItemChanged(pos);
-                            });
+                            // UI reveal is intentionally deferred until onComplete so output can be
+                            // shown with smooth character pacing instead of raw token bursts.
                         }
 
                         @Override
                         public void onComplete(String fullResponse) {
                             runOnUiThread(() -> {
-                                if (!fullResponse.equals(aiMsg.getContent())) {
-                                    aiMsg.setContent(fullResponse);
-                                    int pos = messages.indexOf(aiMsg);
-                                    if (pos >= 0) chatAdapter.notifyItemChanged(pos);
-                                }
-                                if (conversationHistory.isEmpty()
-                                        || conversationHistory.get(conversationHistory.size() - 1).isUser()) {
-                                    conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
-                                    compactConversationHistoryIfNeeded();
-                                }
-                                isGenerating = false;
-                                updateSendEnabledForInput();
+                                if (generationId != activeGenerationId) return;
+                                beginReveal(aiMsg, fullResponse, generationId);
                             });
                         }
 
                         @Override
                         public void onError(Exception e) {
                             runOnUiThread(() -> {
+                                if (generationId != activeGenerationId) return;
+                                cancelActiveReveal();
                                 aiMsg.setContent(getString(R.string.error_prefix, e.getMessage()));
                                 int pos = messages.indexOf(aiMsg);
                                 if (pos >= 0) chatAdapter.notifyItemChanged(pos);
@@ -350,6 +357,89 @@ public class MainActivity extends AppCompatActivity {
         boolean hasText = !inputField.getText().toString().trim().isEmpty();
         boolean enabled = isGenerating || (modelReady && inputField.isEnabled() && hasText);
         setSendButtonState(enabled, isGenerating);
+    }
+
+    private void beginReveal(Message aiMsg, String fullResponse, int generationId) {
+        cancelActiveReveal();
+        String safeResponse = fullResponse == null ? "" : fullResponse;
+        aiMsg.setContent("");
+        int pos = messages.indexOf(aiMsg);
+        if (pos >= 0) chatAdapter.notifyItemChanged(pos);
+
+        activeRevealMessage = aiMsg;
+        activeRevealGenerationId = generationId;
+        activeRevealFullText = safeResponse;
+        final int[] index = {0};
+        activeRevealRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (generationId != activeGenerationId || activeRevealMessage == null) {
+                    cancelActiveReveal();
+                    return;
+                }
+                if (index[0] >= safeResponse.length()) {
+                    finalizeAssistantMessage(activeRevealMessage, generationId);
+                    return;
+                }
+                char ch = safeResponse.charAt(index[0]++);
+                activeRevealMessage.setContent(activeRevealMessage.getContent() + ch);
+                int itemPos = messages.indexOf(activeRevealMessage);
+                if (itemPos >= 0) chatAdapter.notifyItemChanged(itemPos);
+                uiHandler.postDelayed(this, nextRevealDelayMs(ch));
+            }
+        };
+        uiHandler.post(activeRevealRunnable);
+    }
+
+    private long nextRevealDelayMs(char ch) {
+        if (ch == '.' || ch == '!' || ch == '?' || ch == '\n') {
+            return RESPONSE_SENTENCE_PAUSE_MS;
+        }
+        if (ch == ',' || ch == ';' || ch == ':') {
+            return RESPONSE_CLAUSE_PAUSE_MS;
+        }
+        return RESPONSE_REVEAL_DELAY_MS;
+    }
+
+    private void finishRevealEarly() {
+        if (activeRevealRunnable == null || activeRevealMessage == null) return;
+        uiHandler.removeCallbacks(activeRevealRunnable);
+        activeRevealRunnable = null;
+        if (activeRevealGenerationId == activeGenerationId) {
+            finalizeAssistantMessage(activeRevealMessage, activeRevealGenerationId);
+        } else {
+            cancelActiveReveal();
+        }
+    }
+
+    private void cancelActiveReveal() {
+        if (activeRevealRunnable != null) {
+            uiHandler.removeCallbacks(activeRevealRunnable);
+        }
+        activeRevealRunnable = null;
+        activeRevealMessage = null;
+        activeRevealGenerationId = -1;
+        activeRevealFullText = "";
+    }
+
+    private void finalizeAssistantMessage(Message aiMsg, int generationId) {
+        if (generationId != activeGenerationId) {
+            cancelActiveReveal();
+            return;
+        }
+        if (!activeRevealFullText.isEmpty() && !activeRevealFullText.equals(aiMsg.getContent())) {
+            aiMsg.setContent(activeRevealFullText);
+            int pos = messages.indexOf(aiMsg);
+            if (pos >= 0) chatAdapter.notifyItemChanged(pos);
+        }
+        if (conversationHistory.isEmpty()
+                || conversationHistory.get(conversationHistory.size() - 1).isUser()) {
+            conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
+            compactConversationHistoryIfNeeded();
+        }
+        cancelActiveReveal();
+        isGenerating = false;
+        updateSendEnabledForInput();
     }
 
     private void showStatus(String text) {
