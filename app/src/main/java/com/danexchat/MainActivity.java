@@ -282,6 +282,8 @@ public class MainActivity extends AppCompatActivity {
 
         Message aiMsg = new Message(Message.ROLE_ASSISTANT, "");
         addMessage(aiMsg);
+        final int aiMsgPosition = messages.size() - 1;
+        final StringBuilder streamedResponse = new StringBuilder();
         List<Message> history = new ArrayList<>(conversationHistory);
         if (!modelText.equals(text)) {
             history.set(history.size() - 1, new Message(Message.ROLE_USER, modelText));
@@ -308,9 +310,9 @@ public class MainActivity extends AppCompatActivity {
                             runOnUiThread(() -> {
                                 if (generationId != activeGenerationId) return;
                                 if (piece == null || piece.isEmpty()) return;
-                                aiMsg.setContent(aiMsg.getContent() + piece);
-                                int pos = messages.indexOf(aiMsg);
-                                if (pos >= 0) chatAdapter.notifyItemChanged(pos);
+                                streamedResponse.append(piece);
+                                aiMsg.setContent(streamedResponse.toString());
+                                chatAdapter.notifyItemChanged(aiMsgPosition);
                             });
                         }
 
@@ -321,9 +323,10 @@ public class MainActivity extends AppCompatActivity {
                                 cancelActiveReveal();
                                 String safeResponse = fullResponse == null ? "" : fullResponse;
                                 if (!safeResponse.equals(aiMsg.getContent())) {
+                                    streamedResponse.setLength(0);
+                                    streamedResponse.append(safeResponse);
                                     aiMsg.setContent(safeResponse);
-                                    int pos = messages.indexOf(aiMsg);
-                                    if (pos >= 0) chatAdapter.notifyItemChanged(pos);
+                                    chatAdapter.notifyItemChanged(aiMsgPosition);
                                 }
                                 if (conversationHistory.isEmpty()
                                         || conversationHistory.get(conversationHistory.size() - 1).isUser()) {
