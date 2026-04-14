@@ -305,15 +305,33 @@ public class MainActivity extends AppCompatActivity {
                     new SmolLMInference.StreamCallback() {
                         @Override
                         public void onToken(String piece) {
-                            // UI reveal is intentionally deferred until onComplete so output can be
-                            // shown with smooth character pacing instead of raw token bursts.
+                            runOnUiThread(() -> {
+                                if (generationId != activeGenerationId) return;
+                                if (piece == null || piece.isEmpty()) return;
+                                aiMsg.setContent(aiMsg.getContent() + piece);
+                                int pos = messages.indexOf(aiMsg);
+                                if (pos >= 0) chatAdapter.notifyItemChanged(pos);
+                            });
                         }
 
                         @Override
                         public void onComplete(String fullResponse) {
                             runOnUiThread(() -> {
                                 if (generationId != activeGenerationId) return;
-                                beginReveal(aiMsg, fullResponse, generationId);
+                                cancelActiveReveal();
+                                String safeResponse = fullResponse == null ? "" : fullResponse;
+                                if (!safeResponse.equals(aiMsg.getContent())) {
+                                    aiMsg.setContent(safeResponse);
+                                    int pos = messages.indexOf(aiMsg);
+                                    if (pos >= 0) chatAdapter.notifyItemChanged(pos);
+                                }
+                                if (conversationHistory.isEmpty()
+                                        || conversationHistory.get(conversationHistory.size() - 1).isUser()) {
+                                    conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
+                                    compactConversationHistoryIfNeeded();
+                                }
+                                isGenerating = false;
+                                updateSendEnabledForInput();
                             });
                         }
 
