@@ -3,6 +3,7 @@ package com.danexchat;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
@@ -55,6 +56,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int ARCHIVE_CONDENSED_BUDGET = ARCHIVE_TOKEN_BUDGET / 2;
     private static final int SUMMARY_BATCH_SIZE = 8;
     private static final int KEEP_RECENT_MESSAGES = 6;
+    private static final long STREAM_UPDATE_MIN_INTERVAL_MS = 50L;
     private static final int MESSAGE_OVERHEAD_TOKENS = 4;
     private static final int SUMMARY_SNIPPET_MAX_CHARS = 140;
     // Reveal pacing tuned for natural readability while keeping response display responsive.
@@ -282,6 +284,9 @@ public class MainActivity extends AppCompatActivity {
 
         Message aiMsg = new Message(Message.ROLE_ASSISTANT, "");
         addMessage(aiMsg);
+        final int aiMsgPosition = messages.size() - 1;
+        final StringBuilder streamedResponse = new StringBuilder();
+        final long[] lastStreamUiUpdateMs = {0L};
         List<Message> history = new ArrayList<>(conversationHistory);
         if (!modelText.equals(text)) {
             history.set(history.size() - 1, new Message(Message.ROLE_USER, modelText));
@@ -305,15 +310,38 @@ public class MainActivity extends AppCompatActivity {
                     new SmolLMInference.StreamCallback() {
                         @Override
                         public void onToken(String piece) {
-                            // UI reveal is intentionally deferred until onComplete so output can be
-                            // shown with smooth character pacing instead of raw token bursts.
+                            runOnUiThread(() -> {
+                                if (generationId != activeGenerationId) return;
+                                if (piece == null || piece.isEmpty()) return;
+                                streamedResponse.append(piece);
+                                aiMsg.setContent(streamedResponse.toString());
+                                long now = SystemClock.uptimeMillis();
+                                if (now - lastStreamUiUpdateMs[0] >= STREAM_UPDATE_MIN_INTERVAL_MS) {
+                                    chatAdapter.notifyItemChanged(aiMsgPosition);
+                                    lastStreamUiUpdateMs[0] = now;
+                                }
+                            });
                         }
 
                         @Override
                         public void onComplete(String fullResponse) {
                             runOnUiThread(() -> {
                                 if (generationId != activeGenerationId) return;
-                                beginReveal(aiMsg, fullResponse, generationId);
+                                cancelActiveReveal();
+                                String safeResponse = fullResponse == null ? "" : fullResponse;
+                                if (!safeResponse.equals(aiMsg.getContent())) {
+                                    streamedResponse.setLength(0);
+                                    streamedResponse.append(safeResponse);
+                                    aiMsg.setContent(safeResponse);
+                                }
+                                chatAdapter.notifyItemChanged(aiMsgPosition);
+                                if (conversationHistory.isEmpty()
+                                        || conversationHistory.get(conversationHistory.size() - 1).isUser()) {
+                                    conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
+                                    compactConversationHistoryIfNeeded();
+                                }
+                                isGenerating = false;
+                                updateSendEnabledForInput();
                             });
                         }
 
