@@ -79,6 +79,7 @@ public class SmolLMInference {
     private static final int MAX_INTRO_CHARS = 30;
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
     private static final String DICTIONARY_CLOSING_PHRASE = "Do you want to know more about ";
+    private static final String DICTIONARY_INTRO_FALLBACK_SUFFIX = "Here is the definition.";
     private static final int HISTORY_RELEVANCE_MIN_SIZE = 8;
     private static final int HISTORY_RELEVANCE_RECENT_KEEP = 4;
     private static final int HISTORY_RELEVANCE_MAX_OLDER = 6;
@@ -617,7 +618,7 @@ public class SmolLMInference {
             return normalized.substring(0, boundary).trim();
         }
         if (normalized.length() < MIN_INTRO_CHARS) {
-            normalized = (normalized + " Here is the definition.")
+            normalized = (normalized + " " + DICTIONARY_INTRO_FALLBACK_SUFFIX)
                     .trim();
         }
         if (normalized.length() <= MAX_INTRO_CHARS) {
