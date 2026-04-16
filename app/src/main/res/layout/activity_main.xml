@@ -43,7 +43,7 @@
         android:clipToPadding="false"
         android:paddingTop="8dp"
         android:paddingBottom="8dp"
-        app:layout_constraintBottom_toTopOf="@id/inputRow"
+        app:layout_constraintBottom_toTopOf="@id/modeRow"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tvStatus" />
@@ -57,7 +57,7 @@
         android:elevation="4dp"
         android:orientation="horizontal"
         android:padding="8dp"
-        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/modeRow"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
 
@@ -91,6 +91,27 @@
             android:textColor="@android:color/white"
             android:textSize="18sp" />
 
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/modeRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/inputBackground"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="8dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <Spinner
+            android:id="@+id/spinnerResponseMode"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:entries="@array/response_modes"
+            android:popupBackground="@color/inputBackground" />
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

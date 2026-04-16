@@ -74,10 +74,12 @@ public class SmolLMInference {
     private static final String DICT_DEFINITION_PLACEHOLDER = "<<DEFINITION>>";
     // Dictionary template turns should stay short so they complete quickly and avoid long stalls.
     private static final int DICTIONARY_MAX_NEW_TOKENS = 96;
-    // Intro paraphrase is intentionally constrained to keep fallback assembly concise and stable.
-    private static final int MAX_INTRO_CHARS = 180;
+    // Intro paraphrase is intentionally constrained for factual mode template consistency.
+    private static final int MIN_INTRO_CHARS = 15;
+    private static final int MAX_INTRO_CHARS = 30;
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
     private static final String DICTIONARY_CLOSING_PHRASE = "Do you want to know more about ";
+    private static final String DICTIONARY_INTRO_FALLBACK_SUFFIX = "Here is the definition.";
     private static final int HISTORY_RELEVANCE_MIN_SIZE = 8;
     private static final int HISTORY_RELEVANCE_RECENT_KEEP = 4;
     private static final int HISTORY_RELEVANCE_MAX_OLDER = 6;
@@ -107,6 +109,7 @@ public class SmolLMInference {
     private boolean requiresPositionIds = false;
     private final AtomicBoolean stopRequested = new AtomicBoolean(false);
     private GenerationOptions generationOptions = GenerationOptions.defaults();
+    private boolean dictionaryEnabled = true;
 
     // -----------------------------------------------------------------
     // Constructor
@@ -234,7 +237,9 @@ public class SmolLMInference {
             .append("<|im_end|>\n");
         appendSummaryBlock(sb, "Archived conversation summary", archivedSummary);
         appendSummaryBlock(sb, "Conversation summary", summary);
-        appendSummaryBlock(sb, "Factual dictionary hints", buildDictionaryFacts(history));
+        if (dictionaryEnabled) {
+            appendSummaryBlock(sb, "Factual dictionary hints", buildDictionaryFacts(history));
+        }
         for (Message msg : history) {
             sb.append(msg.isUser() ? "<|im_start|>user\n" : "<|im_start|>assistant\n")
               .append(msg.getContent()).append('\n')
@@ -301,6 +306,10 @@ public class SmolLMInference {
         }
     }
 
+    public synchronized void setDictionaryEnabled(boolean enabled) {
+        dictionaryEnabled = enabled;
+    }
+
     private void generateInternal(
             List<Message> history,
             String summary,
@@ -314,7 +323,7 @@ public class SmolLMInference {
         // template-enforced instructions (without the definition) so it can freely
         // rephrase the beginning/ending while the verbatim definition and topic are
         // injected during post-processing.
-        if (factualDictionary != null && lastUserText != null) {
+        if (dictionaryEnabled && factualDictionary != null && lastUserText != null) {
             FactualDictionary.DictionaryMatch dictMatch =
                     factualDictionary.findExactMatch(lastUserText);
             if (dictMatch != null) {
@@ -466,13 +475,11 @@ public class SmolLMInference {
                 Math.min(previousOptions.maxNewTokens, DICTIONARY_MAX_NEW_TOKENS));
 
         StringBuilder responseBuilder = new StringBuilder();
-        // The generation methods (generateWithKVCache / generateNoKVCache) always
-        // accumulate tokens into responseBuilder via out.append(piece) and then call
-        // onComplete(out.toString()).  onToken is suppressed here so that the raw
-        // (placeholder-containing) tokens are never forwarded to the UI; the fully
-        // assembled response is delivered in a single onComplete call instead.
         StreamCallback dictCallback = new StreamCallback() {
-            @Override public void onToken(String tokenText) { /* suppress – see comment above */ }
+            @Override
+            public void onToken(String tokenText) {
+                callback.onToken(tokenText);
+            }
 
             @Override
             public void onComplete(String fullResponse) {
@@ -523,15 +530,16 @@ public class SmolLMInference {
         sb.append("<|im_start|>system\n")
           .append("You are a helpful on-device AI assistant.\n")
           .append("The user asked for the definition of: ").append(topic).append(".\n")
-          .append("Respond using EXACTLY this three-part format – no exceptions:\n")
-          .append("  1. A brief introductory phrase leading into the definition.\n")
+           .append("Respond using EXACTLY this three-part format – no exceptions:\n")
+           .append("  1. An introductory phrase of 15-30 characters leading into the definition.\n")
           .append("  2. The literal text ").append(DICT_DEFINITION_PLACEHOLDER)
           .append(" (this will be replaced with the actual definition).\n")
           .append("  3. A closing question asking whether the user wants to know more about ")
           .append(topic).append(".\n")
           .append("Rules you MUST follow:\n")
-          .append("  - ").append(DICT_DEFINITION_PLACEHOLDER)
-          .append(" MUST appear exactly once, unchanged.\n")
+           .append("  - ").append(DICT_DEFINITION_PLACEHOLDER)
+           .append(" MUST appear exactly once, unchanged.\n")
+           .append("  - Intro length must stay between 15 and 30 characters.\n")
           .append("  - The closing question MUST contain the exact topic name: ")
           .append(topic).append(".\n")
           .append("  - You may rephrase parts 1 and 3, but MUST NOT alter ")
@@ -608,6 +616,9 @@ public class SmolLMInference {
         int boundary = findSentenceBoundary(normalized);
         if (boundary > 0) {
             return normalized.substring(0, boundary).trim();
+        }
+        if (normalized.length() < MIN_INTRO_CHARS) {
+            normalized = DICTIONARY_INTRO_FALLBACK_SUFFIX;
         }
         if (normalized.length() <= MAX_INTRO_CHARS) {
             return normalized;

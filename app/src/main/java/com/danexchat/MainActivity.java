@@ -1,17 +1,25 @@
 package com.danexchat;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.SystemClock;
+import android.speech.tts.TextToSpeech;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
@@ -40,7 +48,7 @@ import java.util.regex.Pattern;
  * On startup, bundled assets are prepared in internal storage and then loaded
  * for fully on-device chat.
  */
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements ChatAdapter.MessageActionListener {
     private static final String TAG = "MainActivity";
     private static final int DEFAULT_TOOLBAR_HEIGHT_DP = 56;
     // Definition-style turns are treated as a topic switch when token overlap drops below
@@ -56,13 +64,13 @@ public class MainActivity extends AppCompatActivity {
     private static final int ARCHIVE_CONDENSED_BUDGET = ARCHIVE_TOKEN_BUDGET / 2;
     private static final int SUMMARY_BATCH_SIZE = 8;
     private static final int KEEP_RECENT_MESSAGES = 6;
-    private static final long STREAM_UPDATE_MIN_INTERVAL_MS = 50L;
     private static final int MESSAGE_OVERHEAD_TOKENS = 4;
     private static final int SUMMARY_SNIPPET_MAX_CHARS = 140;
-    // Reveal pacing tuned for natural readability while keeping response display responsive.
-    private static final long RESPONSE_REVEAL_DELAY_MS = 16L;
-    private static final long RESPONSE_SENTENCE_PAUSE_MS = 220L;
-    private static final long RESPONSE_CLAUSE_PAUSE_MS = 80L;
+    private static final String MODE_IMAGINATIVE = "Imaginative";
+    private static final String MODE_FACTUAL = "Factual";
+    private static final float IMAGINATIVE_TEMPERATURE = 0.25f;
+    private static final float IMAGINATIVE_TOP_P = 0.9f;
+    private static final int IMAGINATIVE_MAX_TOKENS = 350;
     private static final Set<String> AMBIGUOUS_REFERENCES = new HashSet<>(Arrays.asList(
             "it", "this", "that", "they", "them", "he", "she", "him", "her", "these", "those"
     ));
@@ -78,6 +86,7 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayoutManager layoutManager;
     private EditText inputField;
     private Button sendButton;
+    private Spinner responseModeSpinner;
 
     private TextView tvStatus;
     private View inputRow;
@@ -103,6 +112,9 @@ public class MainActivity extends AppCompatActivity {
     private String activeRevealFullText = "";
     private final StringBuilder activeRevealBuffer = new StringBuilder();
     private boolean modelReady = false;
+    private String selectedResponseMode = MODE_IMAGINATIVE;
+    private TextToSpeech textToSpeech;
+    private volatile boolean ttsReady = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -123,6 +135,10 @@ public class MainActivity extends AppCompatActivity {
         bgExecutor.shutdownNow();
         if (smolLM != null) smolLM.close();
         if (bertEncoder != null) bertEncoder.close();
+        if (textToSpeech != null) {
+            textToSpeech.stop();
+            textToSpeech.shutdown();
+        }
     }
 
     private void bindViews() {
@@ -132,8 +148,11 @@ public class MainActivity extends AppCompatActivity {
         recyclerView = findViewById(R.id.recyclerViewMessages);
         inputField = findViewById(R.id.etUserInput);
         sendButton = findViewById(R.id.btnSend);
+        responseModeSpinner = findViewById(R.id.spinnerResponseMode);
         tvStatus = findViewById(R.id.tvStatus);
         inputRow = findViewById(R.id.inputRow);
+        configureResponseModeSpinner();
+        initTextToSpeech();
 
         View rootLayout = findViewById(R.id.rootLayout);
         final int toolbarPaddingLeft = toolbar.getPaddingLeft();
@@ -182,7 +201,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupRecyclerView() {
-        chatAdapter = new ChatAdapter(messages);
+        chatAdapter = new ChatAdapter(messages, this);
         layoutManager = new LinearLayoutManager(this);
         layoutManager.setStackFromEnd(true);
         recyclerView.setLayoutManager(layoutManager);
@@ -286,7 +305,6 @@ public class MainActivity extends AppCompatActivity {
         addMessage(aiMsg);
         final int aiMsgPosition = messages.size() - 1;
         final StringBuilder streamedResponse = new StringBuilder();
-        final long[] lastStreamUiUpdateMs = {0L};
         List<Message> history = new ArrayList<>(conversationHistory);
         if (!modelText.equals(text)) {
             history.set(history.size() - 1, new Message(Message.ROLE_USER, modelText));
@@ -304,7 +322,16 @@ public class MainActivity extends AppCompatActivity {
             // Intent routing runs on the background thread so that BERT-tiny
             // inference (when the encoder is available) does not block the UI.
             IntentRouter.RouteResult routeResult = intentRouter.route(finalModelText);
-            smolLM.updateGenerationOptions(routeResult.options);
+            if (isFactualModeSelected()) {
+                smolLM.setDictionaryEnabled(true);
+                smolLM.updateGenerationOptions(new SmolLMInference.GenerationOptions(0.0f, 0.82f, 220));
+            } else {
+                smolLM.setDictionaryEnabled(false);
+                smolLM.updateGenerationOptions(new SmolLMInference.GenerationOptions(
+                        IMAGINATIVE_TEMPERATURE,
+                        IMAGINATIVE_TOP_P,
+                        IMAGINATIVE_MAX_TOKENS));
+            }
             Map<String, String> promptTags = buildPromptTags(routeResult.route);
             smolLM.generate(history, conversationSummary, archivedSummary, promptTags,
                     new SmolLMInference.StreamCallback() {
@@ -313,12 +340,10 @@ public class MainActivity extends AppCompatActivity {
                             runOnUiThread(() -> {
                                 if (generationId != activeGenerationId) return;
                                 if (piece == null || piece.isEmpty()) return;
-                                streamedResponse.append(piece);
-                                aiMsg.setContent(streamedResponse.toString());
-                                long now = SystemClock.uptimeMillis();
-                                if (now - lastStreamUiUpdateMs[0] >= STREAM_UPDATE_MIN_INTERVAL_MS) {
+                                for (int i = 0; i < piece.length(); i++) {
+                                    streamedResponse.append(piece.charAt(i));
+                                    aiMsg.setContent(streamedResponse.toString());
                                     chatAdapter.notifyItemChanged(aiMsgPosition);
-                                    lastStreamUiUpdateMs[0] = now;
                                 }
                             });
                         }
@@ -368,6 +393,79 @@ public class MainActivity extends AppCompatActivity {
 
     private void addAssistantMessage(String text) {
         addMessage(new Message(Message.ROLE_ASSISTANT, text));
+    }
+
+    private void configureResponseModeSpinner() {
+        String[] modes = {
+                getString(R.string.mode_imaginative),
+                getString(R.string.mode_factual)
+        };
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(
+                this,
+                R.layout.item_mode_spinner_selected,
+                R.id.tvModeLabel,
+                modes
+        ) {
+            @Override
+            public View getDropDownView(int position, View convertView, ViewGroup parent) {
+                TextView view = (TextView) LayoutInflater.from(getContext())
+                        .inflate(R.layout.item_mode_spinner_dropdown, parent, false);
+                view.setText(getItem(position));
+                return view;
+            }
+        };
+        responseModeSpinner.setAdapter(adapter);
+        responseModeSpinner.setSelection(0, false);
+        responseModeSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                selectedResponseMode = position == 1 ? MODE_FACTUAL : MODE_IMAGINATIVE;
+                if (smolLM != null) {
+                    smolLM.clearResponseCache();
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                selectedResponseMode = MODE_IMAGINATIVE;
+            }
+        });
+    }
+
+    private boolean isFactualModeSelected() {
+        return MODE_FACTUAL.equals(selectedResponseMode);
+    }
+
+    private void initTextToSpeech() {
+        textToSpeech = new TextToSpeech(this, status -> {
+            if (status == TextToSpeech.SUCCESS) {
+                int langResult = textToSpeech.setLanguage(Locale.US);
+                ttsReady = langResult != TextToSpeech.LANG_MISSING_DATA
+                        && langResult != TextToSpeech.LANG_NOT_SUPPORTED;
+                textToSpeech.setPitch(0.85f);
+                textToSpeech.setSpeechRate(1.0f);
+            } else {
+                ttsReady = false;
+            }
+        });
+    }
+
+    @Override
+    public void onCopyRequested(Message message) {
+        ClipboardManager clipboardManager =
+                (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboardManager != null) {
+            ClipData clipData = ClipData.newPlainText("DanexChat message", message.getContent());
+            clipboardManager.setPrimaryClip(clipData);
+            Toast.makeText(this, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    public void onSpeakRequested(Message message) {
+        if (message == null || message.isUser() || !ttsReady || textToSpeech == null) return;
+        textToSpeech.stop();
+        textToSpeech.speak(message.getContent(), TextToSpeech.QUEUE_FLUSH, null, "danexchat_tts");
     }
 
     private void setInputEnabled(boolean enabled) {
@@ -426,13 +524,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private long nextRevealDelayMs(char ch) {
-        if (ch == '.' || ch == '!' || ch == '?' || ch == '\n') {
-            return RESPONSE_SENTENCE_PAUSE_MS;
-        }
-        if (ch == ',' || ch == ';' || ch == ':') {
-            return RESPONSE_CLAUSE_PAUSE_MS;
-        }
-        return RESPONSE_REVEAL_DELAY_MS;
+        return 0L;
     }
 
     private void finishRevealEarly() {
