@@ -3,6 +3,7 @@ package com.danexchat;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -22,9 +23,16 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.MessageViewHol
     private static final int VIEW_TYPE_ASSISTANT = 1;
 
     private List<Message> messages;
+    private final MessageActionListener actionListener;
 
-    public ChatAdapter(List<Message> messages) {
+    interface MessageActionListener {
+        void onCopyRequested(Message message);
+        void onSpeakRequested(Message message);
+    }
+
+    public ChatAdapter(List<Message> messages, MessageActionListener actionListener) {
         this.messages = messages;
+        this.actionListener = actionListener;
     }
 
     public void setMessages(List<Message> messages) {
@@ -62,16 +70,6 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.MessageViewHol
         return messages.get(position).isUser() ? VIEW_TYPE_USER : VIEW_TYPE_ASSISTANT;
     }
 
-    @NonNull
-    @Override
-    public MessageViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        int layoutId = (viewType == VIEW_TYPE_USER)
-                ? R.layout.item_message_user
-                : R.layout.item_message_assistant;
-        View view = LayoutInflater.from(parent.getContext()).inflate(layoutId, parent, false);
-        return new MessageViewHolder(view);
-    }
-
     @Override
     public void onBindViewHolder(@NonNull MessageViewHolder holder, int position) {
         holder.bind(messages.get(position));
@@ -84,14 +82,42 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.MessageViewHol
 
     static class MessageViewHolder extends RecyclerView.ViewHolder {
         private final TextView textView;
+        private final Button copyButton;
+        private final Button speakButton;
+        private final MessageActionListener actionListener;
 
-        MessageViewHolder(@NonNull View itemView) {
+        MessageViewHolder(@NonNull View itemView, MessageActionListener actionListener) {
             super(itemView);
             textView = itemView.findViewById(R.id.tvMessageContent);
+            copyButton = itemView.findViewById(R.id.btnCopy);
+            speakButton = itemView.findViewById(R.id.btnSpeak);
+            this.actionListener = actionListener;
         }
 
         void bind(Message message) {
             textView.setText(message.getContent());
+            copyButton.setOnClickListener(v -> {
+                if (actionListener != null) actionListener.onCopyRequested(message);
+            });
+            if (message.isUser()) {
+                speakButton.setVisibility(View.GONE);
+                speakButton.setOnClickListener(null);
+            } else {
+                speakButton.setVisibility(View.VISIBLE);
+                speakButton.setOnClickListener(v -> {
+                    if (actionListener != null) actionListener.onSpeakRequested(message);
+                });
+            }
         }
+    }
+
+    @NonNull
+    @Override
+    public MessageViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        int layoutId = (viewType == VIEW_TYPE_USER)
+                ? R.layout.item_message_user
+                : R.layout.item_message_assistant;
+        View view = LayoutInflater.from(parent.getContext()).inflate(layoutId, parent, false);
+        return new MessageViewHolder(view, actionListener);
     }
 }

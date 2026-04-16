@@ -17,4 +17,13 @@
     <string name="error_prefix">⚠ Error: %1$s</string>
     <string name="ars_clarify_reference">Proceeding with best match context.</string>
     <string name="ars_clarify_ambiguous_reference">Proceeding with best match context.</string>
+    <string name="mode_factual">Factual</string>
+    <string name="mode_imaginative">Imaginative</string>
+    <string name="copy">Copy</string>
+    <string name="speak">Speak</string>
+    <string name="copied_to_clipboard">Copied</string>
+    <string-array name="response_modes">
+        <item>@string/mode_imaginative</item>
+        <item>@string/mode_factual</item>
+    </string-array>
 </resources>
