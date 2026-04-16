@@ -618,8 +618,7 @@ public class SmolLMInference {
             return normalized.substring(0, boundary).trim();
         }
         if (normalized.length() < MIN_INTRO_CHARS) {
-            normalized = (normalized + " " + DICTIONARY_INTRO_FALLBACK_SUFFIX)
-                    .trim();
+            normalized = DICTIONARY_INTRO_FALLBACK_SUFFIX;
         }
         if (normalized.length() <= MAX_INTRO_CHARS) {
             return normalized;
