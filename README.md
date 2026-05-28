@@ -6,12 +6,11 @@ An Android chat application powered by **SmolLM2-135M-Instruct** running entirel
 
 - 💬 Chat interface with streaming token-by-token output
 - 🤖 **SmolLM2-135M-Instruct** — a compact, capable language model by HuggingFace
-- ⚡ Quantized (Q4) ONNX model for fast on-device inference
+- ⚡ ONNX model for fast on-device inference
 - 🔐 100% on-device — no data leaves your phone
 - 🧠 Single-conversation flow with lightweight ambiguity/topic handling
 - 🔍 **BERT-tiny** semantic encoder for intent routing, factual retrieval, and response caching
 - 📖 Bundled WordNet-based factual dictionary for grounded definitions and facts
-- 🏋️ Fine-tunable: retraining pipeline (pruning + SFT) available under `training/`
 - 📱 Supports **Android 11–15** (API 30–35)
 
 ## Architecture
@@ -35,7 +34,7 @@ app/
 
 1. **Startup + asset readiness**
    - `MainActivity` calls `ModelManager.isReady()` on a background executor.
-   - `ModelManager` verifies `assets/smollm2/model_q4.onnx`, `tokenizer.json`, `wordnet.json`, and the BERT-tiny files (`bert_tiny/bert_tiny.onnx`, `bert_tiny/bert_vocab.txt`) are all copied to internal storage and pass minimum size checks.
+   - `ModelManager` verifies `assets/smollm2/model.onnx`, `tokenizer.json`, `wordnet.json`, and the BERT-tiny files (`bert_tiny/bert_tiny.onnx`, `bert_tiny/bert_vocab.txt`) are all copied to internal storage and pass minimum size checks.
 
 2. **Inference engine initialization**
    - `SmolLMInference` creates one ONNX Runtime session and tokenizer instance.
@@ -67,7 +66,7 @@ app/
 | Property | Value |
 |---|---|
 | Main model | `onnx-community/SmolLM2-135M-Instruct` |
-| Format | ONNX Q4 quantized |
+| Format | ONNX (unquantized) |
 | Model size in APK/assets | ≈ 90 MB |
 | Semantic encoder | `prajjwal1/bert-tiny` (exported to ONNX) |
 | Inference engine | ONNX Runtime Android 1.20.0 |
@@ -100,7 +99,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
 > **Note**: This project expects all model assets to be pre-bundled before APK build:
-> - `app/src/main/assets/smollm2/model_q4.onnx`
+> - `app/src/main/assets/smollm2/model.onnx`
 > - `app/src/main/assets/smollm2/tokenizer.json`
 > - `app/src/main/assets/smollm2/wordnet.json`
 > - `app/src/main/assets/bert_tiny/bert_tiny.onnx`
@@ -108,7 +107,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 >
 > You can generate the BERT-tiny files with:
 > ```bash
-> python training/export_bert_tiny.py --output-dir /tmp/bert_tiny_assets
+> python scripts/export_bert_tiny.py --output-dir /tmp/bert_tiny_assets
 > mkdir -p app/src/main/assets/bert_tiny
 > cp /tmp/bert_tiny_assets/bert_tiny.onnx app/src/main/assets/bert_tiny/bert_tiny.onnx
 > cp /tmp/bert_tiny_assets/bert_vocab.txt app/src/main/assets/bert_tiny/bert_vocab.txt
@@ -126,20 +125,6 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 | ConstraintLayout | 2.2.0 | Layouts |
 | RecyclerView | 1.3.2 | Chat message list |
 | org.json | 20240303 | Tokenizer JSON parsing |
-
-## Training pipeline
-
-A Python retraining pipeline is available under `training/` for custom fine-tuning or pruning of the chat model.
-
-| Script | Purpose |
-|---|---|
-| `training/prepare_chat_dataset.py` | Builds a SFT-ready chat dataset |
-| `training/prune_model.py` | Magnitude-prunes the SmolLM2 model |
-| `training/finetune_chat_sft.py` | SFT fine-tunes the pruned model |
-| `training/export_bert_tiny.py` | Exports `prajjwal1/bert-tiny` to ONNX |
-| `training/run_pipeline.sh` | Orchestrates the full pipeline end-to-end |
-
-See [`training/README.md`](training/README.md) for full usage instructions. A GitHub Actions workflow (`.github/workflows/training.yml`) allows the pipeline to be triggered on demand via `workflow_dispatch`.
 
 ## Additional documentation
 

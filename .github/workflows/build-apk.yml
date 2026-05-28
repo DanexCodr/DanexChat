@@ -36,11 +36,11 @@ jobs:
             return 1
           }
 
-          download_file app/src/main/assets/smollm2/model_q4.onnx \
-            "https://huggingface.co/onnx-community/SmolLM2-135M-Instruct/resolve/main/onnx/model_q4.onnx" \
-            "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/main/onnx/model_q4.onnx" || {
-              echo "::warning::Unable to download model_q4.onnx from public mirrors (likely authorization-restricted). Creating a CI placeholder file only to validate APK packaging; model inference is expected to be non-functional in this artifact."
-              printf 'ci-placeholder-model-not-a-real-onnx\n' > app/src/main/assets/smollm2/model_q4.onnx
+          download_file app/src/main/assets/smollm2/model.onnx \
+            "https://huggingface.co/onnx-community/SmolLM2-135M-Instruct/resolve/main/onnx/model.onnx" \
+            "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/main/onnx/model.onnx" || {
+              echo "::warning::Unable to download model.onnx from public mirrors (likely authorization-restricted). Creating a CI placeholder file only to validate APK packaging; model inference is expected to be non-functional in this artifact."
+              printf 'ci-placeholder-model-not-a-real-onnx\n' > app/src/main/assets/smollm2/model.onnx
             }
 
           download_file app/src/main/assets/smollm2/tokenizer.json \
@@ -49,7 +49,7 @@ jobs:
               echo "::warning::Unable to download tokenizer.json from public mirrors. Creating a minimal CI placeholder only to validate APK packaging; model inference is expected to be non-functional in this artifact."
               printf '{"model":{"vocab":{},"merges":[]},"added_tokens":[]}\n' > app/src/main/assets/smollm2/tokenizer.json
           }
-          test -s app/src/main/assets/smollm2/model_q4.onnx || { echo "Error: model_q4.onnx missing or empty"; exit 1; }
+          test -s app/src/main/assets/smollm2/model.onnx || { echo "Error: model.onnx missing or empty"; exit 1; }
           test -s app/src/main/assets/smollm2/tokenizer.json || { echo "Error: tokenizer.json missing or empty"; exit 1; }
 
       - name: Download BERT-tiny bundled assets
@@ -87,7 +87,7 @@ jobs:
             echo "Generating BERT-tiny assets from $BERT_REPO_URL"
             python3 -m pip install --upgrade pip
             python3 -m pip install torch "transformers<5" "tokenizers<0.20" protobuf sentencepiece onnxscript
-            python3 training/export_bert_tiny.py --output-dir /tmp/bert_tiny_assets \
+            python3 scripts/export_bert_tiny.py --output-dir /tmp/bert_tiny_assets \
               || { echo "Error: BERT-tiny export script failed"; exit 1; }
             cp /tmp/bert_tiny_assets/bert_tiny.onnx .cache/bert_tiny/bert_tiny.onnx \
               || { echo "Error: Failed to copy generated bert_tiny.onnx"; exit 1; }

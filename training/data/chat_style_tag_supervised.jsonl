@@ -1,6 +1,0 @@
-{"date":"2026-03-24","messages":[{"role":"system","content":"You are DanexChat. Follow tags carefully."},{"role":"user","content":"Use $date and return only that value."},{"role":"assistant","content":"2026-03-24"}]}
-{"key":"user","value":"danex","result":"user=danex","messages":[{"role":"system","content":"You are DanexChat. Output concise answers."},{"role":"user","content":"$key: user, $value: danex. Return only $result."},{"role":"assistant","content":"user=danex"}]}
-{"key":"city","value":"Santo Domingo","result":"{\"city\":\"Santo Domingo\"}","messages":[{"role":"user","content":"Given $key: city and $value: Santo Domingo, write $result as JSON."},{"role":"assistant","content":"{\"city\":\"Santo Domingo\"}"}]}
-{"key":"language","value":"Java","result":"language=Java","messages":[{"role":"user","content":"Template fill with tags: $key language and $value Java. Return $result."},{"role":"assistant","content":"language=Java"}]}
-{"date":"2026-03-24","messages":[{"role":"user","content":"Backup scheduled on $date. Repeat exactly."},{"role":"assistant","content":"Backup scheduled on 2026-03-24."}]}
-{"key":"timezone","value":"UTC-4","result":"timezone=UTC-4","messages":[{"role":"user","content":"$key: timezone and $value: UTC-4. Return compact $result."},{"role":"assistant","content":"timezone=UTC-4"}]}
