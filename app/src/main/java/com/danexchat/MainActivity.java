@@ -301,7 +301,7 @@ public class MainActivity extends AppCompatActivity implements ChatAdapter.Messa
             Log.d(TAG, "Ambiguity resolved: '" + text + "' -> '" + modelText + "'");
         }
 
-        Message aiMsg = new Message(Message.ROLE_ASSISTANT, "");
+        Message aiMsg = new Message(Message.ROLE_ASSISTANT, getString(R.string.generating_placeholder));
         addMessage(aiMsg);
         final int aiMsgPosition = messages.size() - 1;
         final StringBuilder streamedResponse = new StringBuilder();
@@ -344,6 +344,7 @@ public class MainActivity extends AppCompatActivity implements ChatAdapter.Messa
                                     streamedResponse.append(piece.charAt(i));
                                     aiMsg.setContent(streamedResponse.toString());
                                     chatAdapter.notifyItemChanged(aiMsgPosition);
+                                    scrollToBottom();
                                 }
                             });
                         }
@@ -354,12 +355,16 @@ public class MainActivity extends AppCompatActivity implements ChatAdapter.Messa
                                 if (generationId != activeGenerationId) return;
                                 cancelActiveReveal();
                                 String safeResponse = fullResponse == null ? "" : fullResponse;
+                                if (safeResponse.trim().isEmpty()) {
+                                    safeResponse = getString(R.string.no_response_generated);
+                                }
                                 if (!safeResponse.equals(aiMsg.getContent())) {
                                     streamedResponse.setLength(0);
                                     streamedResponse.append(safeResponse);
                                     aiMsg.setContent(safeResponse);
                                 }
                                 chatAdapter.notifyItemChanged(aiMsgPosition);
+                                scrollToBottom();
                                 if (conversationHistory.isEmpty()
                                         || conversationHistory.get(conversationHistory.size() - 1).isUser()) {
                                     conversationHistory.add(new Message(Message.ROLE_ASSISTANT, aiMsg.getContent()));
@@ -378,6 +383,7 @@ public class MainActivity extends AppCompatActivity implements ChatAdapter.Messa
                                 aiMsg.setContent(getString(R.string.error_prefix, e.getMessage()));
                                 int pos = messages.indexOf(aiMsg);
                                 if (pos >= 0) chatAdapter.notifyItemChanged(pos);
+                                scrollToBottom();
                                 isGenerating = false;
                                 updateSendEnabledForInput();
                             });
@@ -389,10 +395,19 @@ public class MainActivity extends AppCompatActivity implements ChatAdapter.Messa
     private void addMessage(Message msg) {
         messages.add(msg);
         chatAdapter.notifyItemInserted(messages.size() - 1);
+        scrollToBottom();
     }
 
     private void addAssistantMessage(String text) {
         addMessage(new Message(Message.ROLE_ASSISTANT, text));
+    }
+
+    private void scrollToBottom() {
+        if (chatAdapter == null) return;
+        int last = chatAdapter.getItemCount() - 1;
+        if (last >= 0) {
+            recyclerView.scrollToPosition(last);
+        }
     }
 
     private void configureResponseModeSpinner() {

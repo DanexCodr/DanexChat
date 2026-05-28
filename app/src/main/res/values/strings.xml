@@ -10,10 +10,12 @@
     <string name="loading_model">Loading model…</string>
     <string name="model_ready">👋 Hi! How can I help you today?</string>
     <string name="bundled_model_missing">Bundled model files are missing from this build.</string>
-    <string name="bundled_model_missing_chat">⚠ Bundled model files are missing. Please reinstall a build that includes model_q4.onnx and tokenizer.json in assets/smollm2.</string>
+    <string name="bundled_model_missing_chat">⚠ Bundled model files are missing. Please reinstall a build that includes model.onnx and tokenizer.json in assets/smollm2.</string>
     <string name="load_error">Failed to load model: %1$s</string>
     <string name="load_error_toast">Could not load AI model</string>
     <string name="generation_error">⚠ An error occurred during generation.</string>
+    <string name="no_response_generated">⚠ I couldn\'t generate a response. Please try again.</string>
+    <string name="generating_placeholder">…</string>
     <string name="error_prefix">⚠ Error: %1$s</string>
     <string name="ars_clarify_reference">Proceeding with best match context.</string>
     <string name="ars_clarify_ambiguous_reference">Proceeding with best match context.</string>

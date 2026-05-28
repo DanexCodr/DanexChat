@@ -34,7 +34,7 @@ android {
 }
 
 def requiredAiAssets = [
-        "smollm2/model_q4.onnx",
+        "smollm2/model.onnx",
         "smollm2/tokenizer.json",
         "smollm2/wordnet.json",
         "bert_tiny/bert_tiny.onnx",
