@@ -149,7 +149,6 @@ jobs:
         with:
           name: danexchat-debug-apk
           path: |
-            app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/debug/*.7z
           if-no-files-found: error
 
