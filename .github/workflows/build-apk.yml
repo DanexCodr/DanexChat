@@ -147,9 +147,8 @@ jobs:
         id: upload-artifact
         uses: actions/upload-artifact@v4
         with:
-          name: danexchat-debug-apk
+          name: danexchat-debug-7z
           path: |
-            app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/debug/*.7z
           if-no-files-found: error
 
