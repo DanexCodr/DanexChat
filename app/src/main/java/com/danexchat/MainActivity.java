@@ -90,6 +90,7 @@ public class MainActivity extends AppCompatActivity implements ChatAdapter.Messa
 
     private TextView tvStatus;
     private View inputRow;
+    private View modeRow;
     private final List<Message> messages = new ArrayList<>();
     private final List<Message> conversationHistory = new ArrayList<>();
     private String conversationSummary = "";
@@ -151,6 +152,7 @@ public class MainActivity extends AppCompatActivity implements ChatAdapter.Messa
         responseModeSpinner = findViewById(R.id.spinnerResponseMode);
         tvStatus = findViewById(R.id.tvStatus);
         inputRow = findViewById(R.id.inputRow);
+        modeRow = findViewById(R.id.modeRow);
         configureResponseModeSpinner();
         initTextToSpeech();
 
@@ -164,6 +166,10 @@ public class MainActivity extends AppCompatActivity implements ChatAdapter.Messa
         final int inputPaddingTop = inputRow.getPaddingTop();
         final int inputPaddingRight = inputRow.getPaddingRight();
         final int inputPaddingBottom = inputRow.getPaddingBottom();
+        final int modePaddingLeft = modeRow.getPaddingLeft();
+        final int modePaddingTop = modeRow.getPaddingTop();
+        final int modePaddingRight = modeRow.getPaddingRight();
+        final int modePaddingBottom = modeRow.getPaddingBottom();
 
         ViewCompat.setOnApplyWindowInsetsListener(rootLayout, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
@@ -180,7 +186,12 @@ public class MainActivity extends AppCompatActivity implements ChatAdapter.Messa
             inputRow.setPadding(inputPaddingLeft,
                     inputPaddingTop,
                     inputPaddingRight,
-                    inputPaddingBottom + Math.max(bars.bottom, imeInsets.bottom));
+                    inputPaddingBottom);
+            modeRow.setPadding(modePaddingLeft,
+                    modePaddingTop,
+                    modePaddingRight,
+                    modePaddingBottom + Math.max(bars.bottom, imeInsets.bottom));
+            scrollToBottom();
             return insets;
         });
         ViewCompat.requestApplyInsets(rootLayout);
@@ -406,7 +417,7 @@ public class MainActivity extends AppCompatActivity implements ChatAdapter.Messa
         if (chatAdapter == null) return;
         int last = chatAdapter.getItemCount() - 1;
         if (last >= 0) {
-            recyclerView.scrollToPosition(last);
+            recyclerView.post(() -> recyclerView.scrollToPosition(last));
         }
     }
 
