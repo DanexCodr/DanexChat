@@ -134,12 +134,23 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
+      - name: Install 7z
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+
+      - name: Compress APK (7z ultra)
+        run: |
+          7z a -t7z -mx=9 -m0=lzma2 -ms=on \
+            app/build/outputs/apk/debug/danexchat-debug-apk.7z \
+            app/build/outputs/apk/debug/*.apk
+
       - name: Upload APK artifact
         id: upload-artifact
         uses: actions/upload-artifact@v4
         with:
           name: danexchat-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/debug/*.7z
           if-no-files-found: error
 
       - name: Add artifact link to workflow summary
